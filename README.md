@@ -156,7 +156,21 @@ For local models, configure Ollama with `llm_provider: "ollama"`. The default en
 
 For any other OpenAI-compatible server (vLLM, LM Studio, llama.cpp, or a custom relay), use `llm_provider: "openai_compatible"` and set the endpoint via `backend_url` (or `TRADINGAGENTS_LLM_BACKEND_URL`), e.g. `http://localhost:8000/v1` for vLLM or `http://localhost:1234/v1` for LM Studio. The model is whatever your server serves. No key is needed for local servers; set `OPENAI_COMPATIBLE_API_KEY` when the endpoint requires one.
 
-Alternatively, copy `.env.example` to `.env` and fill in your keys:
+The recommended setup is the local configuration page. It keeps news-source and
+LLM credentials in one place, writes them to the git-ignored project `.env`, and
+never sends a saved secret back to the browser:
+
+```bash
+tradingagents configure
+# Or, when running directly from the source tree:
+python -m cli.main configure
+```
+
+The service listens on `127.0.0.1` only. Use `--no-browser` if you want to open
+the displayed local URL yourself, or `--port 9000` to choose another local port.
+After saving, start a new analysis process so it reads the updated settings.
+
+You can also copy `.env.example` to `.env` and fill in your keys manually:
 ```bash
 cp .env.example .env
 ```

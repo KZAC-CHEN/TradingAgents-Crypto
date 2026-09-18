@@ -1,11 +1,10 @@
 import os
-from pathlib import Path
 
 import questionary
-from dotenv import find_dotenv, set_key
 from rich.console import Console
 
 from cli.models import AnalystType, AssetType
+from tradingagents.config_store import ConfigStore
 from tradingagents.llm_clients.api_key_env import get_api_key_env
 from tradingagents.llm_clients.model_catalog import get_model_options
 
@@ -601,19 +600,10 @@ def confirm_ollama_endpoint(url: str) -> None:
 
 
 def ensure_api_key(provider: str) -> str | None:
-    """Make sure the API key for `provider` is available in the environment.
-
-    If the env var is already set, returns its value untouched. Otherwise
-    interactively prompts the user, persists the value to the project's
-    .env file via python-dotenv's set_key (creating .env if needed), and
-    exports it into os.environ so the current process picks it up.
-
-    Returns None for providers that do not require a key (e.g. ollama)
-    and for providers not found in the canonical mapping.
-    """
+    """确保供应商密钥可用，并通过统一配置存储写入项目 ``.env``。"""
     env_var = get_api_key_env(provider)
     if env_var is None:
-        return None  # ollama / unknown — no key check possible
+        return None  # Ollama 或未知供应商没有可检查的单一密钥。
 
     # Key-optional providers (generic OpenAI-compatible / local servers) read the
     # key when present but must never force an interactive prompt.
@@ -642,11 +632,9 @@ def ensure_api_key(provider: str) -> str | None:
         )
         return None
 
-    env_path = find_dotenv(usecwd=True) or str(Path.cwd() / ".env")
-    Path(env_path).touch(exist_ok=True)
-    set_key(env_path, env_var, key)
-    os.environ[env_var] = key
-    console.print(f"[green]Saved {env_var} to {env_path}[/green]")
+    store = ConfigStore()
+    store.apply_changes({env_var: key})
+    console.print(f"[green]Saved {env_var} to {store.env_path}[/green]")
     return key
 
 

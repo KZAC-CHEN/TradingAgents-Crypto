@@ -69,6 +69,8 @@ app = typer.Typer(
     name="TradingAgents",
     help="TradingAgents CLI: Multi-Agents LLM Financial Trading Framework",
     add_completion=True,  # Enable shell completion
+    invoke_without_command=True,
+    no_args_is_help=False,
 )
 
 
@@ -1301,6 +1303,69 @@ def run_analysis(checkpoint: bool | None = None):
         display_complete_report(final_state)
 
 
+def _execute_analysis_command(
+    checkpoint: bool | None = None,
+    clear_checkpoints: bool = False,
+) -> None:
+    """执行分析命令，并统一处理无控制台环境。"""
+    if clear_checkpoints:
+        from tradingagents.graph.checkpointer import clear_all_checkpoints
+        n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
+        console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
+    try:
+        run_analysis(checkpoint=checkpoint)
+    except _NO_CONSOLE_ERRORS:
+        # 无控制台缓冲区时，交互式选择器无法工作；输出一条可执行的提示。
+        typer.echo(
+            "Error: no Windows console available. The interactive CLI needs a real "
+            "console buffer — run it from Windows Terminal, PowerShell, or cmd.exe "
+            "rather than a piped or embedded terminal.",
+            err=True,
+        )
+        raise typer.Exit(code=1) from None
+
+
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context) -> None:
+    """未指定子命令时保持原有行为，直接启动交互式分析。"""
+    if ctx.invoked_subcommand is None:
+        _execute_analysis_command()
+
+
+@app.command()
+def configure(
+    port: int = typer.Option(
+        8765,
+        "--port",
+        min=1,
+        max=65535,
+        help="Local port used by the configuration page.",
+    ),
+    no_browser: bool = typer.Option(
+        False,
+        "--no-browser",
+        help="Start the service without opening the default browser.",
+    ),
+    env_file: str | None = typer.Option(
+        None,
+        "--env-file",
+        help="Optional .env path; defaults to the project .env file.",
+    ),
+):
+    """启动仅限本机访问的新闻源与大模型配置页面。"""
+    from tradingagents.config_web import run_config_server
+
+    try:
+        run_config_server(
+            port=port,
+            env_path=env_file,
+            open_browser=not no_browser,
+        )
+    except OSError as exc:
+        console.print(f"[red]无法启动配置中心：{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+
 @app.command()
 def analyze(
     checkpoint: bool | None = typer.Option(
@@ -1315,23 +1380,7 @@ def analyze(
         help="Delete all saved checkpoints before running (force fresh start).",
     ),
 ):
-    if clear_checkpoints:
-        from tradingagents.graph.checkpointer import clear_all_checkpoints
-        n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
-        console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
-    try:
-        run_analysis(checkpoint=checkpoint)
-    except _NO_CONSOLE_ERRORS:
-        # A terminal with no console buffer cannot host the interactive prompts.
-        # Emit one actionable line on stderr instead of a prompt_toolkit
-        # traceback; plain text, since rich may not render here either (#1138).
-        typer.echo(
-            "Error: no Windows console available. The interactive CLI needs a real "
-            "console buffer — run it from Windows Terminal, PowerShell, or cmd.exe "
-            "rather than a piped or embedded terminal.",
-            err=True,
-        )
-        raise typer.Exit(code=1) from None
+    _execute_analysis_command(checkpoint, clear_checkpoints)
 
 
 if __name__ == "__main__":

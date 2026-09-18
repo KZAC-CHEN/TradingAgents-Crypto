@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>TradingAgents 配置中心</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="TradingAgents 配置中心">
+      <span class="brand-mark">TA</span>
+      <span><strong>TradingAgents</strong><small>本地配置中心</small></span>
+    </a>
+    <div class="local-badge"><span></span>仅本机访问</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">CONFIGURATION CONSOLE</p>
+        <h1>把数据源与模型接入<br><em>集中在一个安全入口</em></h1>
+        <p class="lead">密钥只会发送到当前电脑上的 TradingAgents 服务，并写入项目中被 Git 忽略的 <code>.env</code> 文件。页面不会读取或回显完整密钥。</p>
+      </div>
+      <aside class="security-card">
+        <div class="shield">✓</div>
+        <div><strong>本地保存</strong><p>无云端同步 · 无第三方脚本</p></div>
+        <div class="score"><b id="configured-count">—</b><span>已配置密钥</span></div>
+      </aside>
+    </section>
+
+    <section class="source-strip" aria-labelledby="source-title">
+      <div>
+        <p class="section-kicker">ZERO CONFIG SOURCES</p>
+        <h2 id="source-title">无需密钥，直接可用</h2>
+      </div>
+      <div class="source-pills" id="keyless-sources"></div>
+    </section>
+
+    <nav class="tabs" id="tabs" aria-label="配置分类"></nav>
+    <div class="notice" id="notice" role="status" aria-live="polite"></div>
+    <form id="config-form" autocomplete="off">
+      <div id="config-groups" class="config-groups">
+        <div class="loading">正在读取本地配置…</div>
+      </div>
+      <div class="save-bar">
+        <div><strong id="change-count">尚无变更</strong><span>密钥字段留空时保持原值</span></div>
+        <button type="submit" id="save-button" disabled><span>保存配置</span><i>→</i></button>
+      </div>
+    </form>
+  </main>
+
+  <footer>
+    <span>TradingAgents</span>
+    <span id="env-path">正在定位 .env…</span>
+  </footer>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>
