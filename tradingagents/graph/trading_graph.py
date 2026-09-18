@@ -16,6 +16,7 @@ from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_balance_sheet,
     get_cashflow,
+    get_crypto_market_report,
     get_fundamentals,
     get_global_news,
     get_income_statement,
@@ -220,6 +221,8 @@ class TradingAgentsGraph:
                     # LLM and required by its prompt; must be executable here or
                     # the call fails and the model reports it "unavailable").
                     get_verified_market_snapshot,
+                    # 加密模式绑定的确定性币安市场报告工具。
+                    get_crypto_market_report,
                 ]
             ),
             "social": ToolNode(
@@ -365,15 +368,13 @@ class TradingAgentsGraph:
             self.memory_log.batch_update_with_outcomes(updates)
 
     def resolve_instrument_context(self, ticker: str, asset_type: str = "stock") -> str:
-        """Resolve ticker identity once and return the full instrument context.
+        """解析一次标的上下文，并让整条分析链路复用。
 
-        Deterministic yfinance lookup (cached, fail-open) injected into a
-        context string so every agent anchors to the real company instead of
-        hallucinating one from the price chart (#814). Both the propagate()
-        path and the CLI call this so the resolved identity reaches the whole
-        graph regardless of entry point.
+        股票使用带缓存且失败开放的 yfinance 身份查询，避免 Agent 根据图形误判
+        公司身份。加密资产只保留交易对上下文，不触发 Yahoo 请求。传播入口与
+        CLI 入口都会调用本方法。
         """
-        identity = resolve_instrument_identity(ticker)
+        identity = None if asset_type == "crypto" else resolve_instrument_identity(ticker)
         return build_instrument_context(ticker, asset_type, identity)
 
     def _memory_as_of(self, trade_date) -> str | None:
@@ -419,8 +420,9 @@ class TradingAgentsGraph:
         """
         self.ticker = company_name
 
-        # Resolve any pending memory-log entries for this ticker before the pipeline runs.
-        self._resolve_pending_entries(company_name)
+        # 现有收益复盘依赖 Yahoo 行情；币安链路在实现原生复盘前不执行该步骤。
+        if asset_type != "crypto":
+            self._resolve_pending_entries(company_name)
 
         with self.checkpoint_scope(company_name, trade_date, asset_type) as thread_id_value:
             return self._run_graph(
@@ -508,14 +510,14 @@ class TradingAgentsGraph:
 
     def _run_graph(self, company_name, trade_date, asset_type: str = "stock",
                    checkpoint_thread_id: str | None = None):
-        """Execute the graph and write the resulting state to disk and memory log."""
-        # Initialize state — inject memory log context for PM and the
-        # deterministically resolved instrument identity for all agents. On a
-        # historical run, gate lessons to those whose outcome was known by the
-        # trade date so a backtest can't learn from the future (#1251).
-        past_context = self.memory_log.get_past_context(
-            company_name, as_of=self._memory_as_of(trade_date)
-        )
+        """执行分析图并将结果写入磁盘；股票决策同时写入记忆日志。"""
+        # 股票按分析日注入当时已知的历史经验；加密资产在原生复盘实现前不读取旧日志。
+        if asset_type == "crypto":
+            past_context = ""
+        else:
+            past_context = self.memory_log.get_past_context(
+                company_name, as_of=self._memory_as_of(trade_date)
+            )
         instrument_context = self.resolve_instrument_context(company_name, asset_type)
         init_agent_state = self.propagator.create_initial_state(
             company_name,
@@ -561,12 +563,13 @@ class TradingAgentsGraph:
         # Log state to disk.
         self._log_state(trade_date, final_state)
 
-        # Store decision for deferred reflection on the next same-ticker run.
-        self.memory_log.store_decision(
-            ticker=company_name,
-            trade_date=trade_date,
-            final_trade_decision=final_state["final_trade_decision"],
-        )
+        # 加密资产尚无币安原生收益复盘，因此只记录可由 Yahoo 校验的股票决策。
+        if asset_type != "crypto":
+            self.memory_log.store_decision(
+                ticker=company_name,
+                trade_date=trade_date,
+                final_trade_decision=final_state["final_trade_decision"],
+            )
 
         # Clear checkpoint on successful completion to avoid stale state.
         self.clear_checkpoint_on_success(company_name, trade_date, asset_type)
