@@ -1,9 +1,8 @@
-"""Read-only Binance spot and USD-M futures market-data snapshots.
+"""币安现货与 U 本位合约的只读市场数据快照。
 
-This module deliberately uses only public market-data endpoints.  It never
-accepts an API secret and cannot place orders.  A snapshot is collected once
-and can be persisted by higher layers so every analyst works from the same
-closed candles and derivatives observations.
+本模块仅调用公开市场数据接口，不接收 API Secret，也不具备下单能力。
+每份快照只采集一次，并可由上层持久化，使所有分析模块使用相同的已收盘
+K 线和合约市场观测数据。
 """
 
 from __future__ import annotations
@@ -29,11 +28,11 @@ _BEIJING = ZoneInfo("Asia/Shanghai")
 
 
 class BinanceAPIError(VendorError):
-    """Binance returned an invalid response or a non-retryable API error."""
+    """币安返回了无效响应或不可重试的 API 错误。"""
 
 
 class BinanceRestrictedLocationError(BinanceAPIError):
-    """Binance denied an endpoint because it is unavailable in this location."""
+    """币安接口因当前网络位置不可用而拒绝访问。"""
 
 
 @dataclass(frozen=True)
@@ -43,11 +42,11 @@ class BinanceEndpoints:
 
 
 def normalize_binance_symbol(raw: str) -> str:
-    """Return a Binance USDT pair such as ``BTCUSDT``.
+    """返回 ``BTCUSDT`` 形式的币安 USDT 交易对。
 
-    Common Yahoo/broker spellings are accepted for convenience.  USD, USDC and
-    BUSD quoted aliases resolve to the corresponding Binance USDT pair because
-    this integration compares spot with the USD-M perpetual market.
+    为方便使用，函数接受常见的 Yahoo 或券商代码写法。由于本集成需要比较
+    现货与 U 本位永续合约，以 USD、USDC 或 BUSD 报价的别名统一转换为对应
+    的 USDT 交易对。
     """
     if not isinstance(raw, str) or not raw.strip():
         raise ValueError("A Binance symbol is required.")
@@ -57,14 +56,14 @@ def normalize_binance_symbol(raw: str) -> str:
     for quote in _QUOTE_ASSETS:
         if compact.endswith(quote) and len(compact) > len(quote):
             return f"{compact[:-len(quote)]}USDT"
-    # A bare base asset is convenient in the web watchlist.
+    # 允许自选列表直接输入不带报价币种的基础资产代码。
     if 2 <= len(compact) <= 12:
         return f"{compact}USDT"
     raise ValueError(f"Cannot resolve {raw!r} to a Binance USDT pair.")
 
 
 def _as_of_millis(as_of: str | datetime | None) -> int:
-    """Resolve an inclusive observation cutoff in UTC milliseconds."""
+    """将包含边界的观测截止时间转换为 UTC 毫秒时间戳。"""
     if as_of is None:
         return int(datetime.now(timezone.utc).timestamp() * 1000)
     if isinstance(as_of, datetime):
@@ -74,8 +73,8 @@ def _as_of_millis(as_of: str | datetime | None) -> int:
         parsed = date.fromisoformat(str(as_of))
     except ValueError as exc:
         raise ValueError("as_of must be an ISO date or datetime.") from exc
-    # A date means the end of that UTC day, matching the project's historical
-    # analysis-date semantics while still excluding candles closed afterwards.
+    # 仅传入日期时使用对应 UTC 日期的最后一刻，以兼容项目现有的历史分析日期语义，
+    # 同时排除在该截止时间之后才收盘的 K 线。
     dt = datetime.combine(parsed, time.max, tzinfo=timezone.utc)
     return int(dt.timestamp() * 1000)
 
@@ -120,7 +119,7 @@ def fetch_klines(
     endpoints: BinanceEndpoints | None = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> pd.DataFrame:
-    """Fetch closed spot or perpetual candles as a normalized dataframe."""
+    """获取已收盘的现货或永续合约 K 线，并转换为统一的数据表。"""
     if interval not in SUPPORTED_INTERVALS:
         raise ValueError(f"Unsupported Binance interval {interval!r}; use 4h or 1d.")
     if market not in {"spot", "futures"}:
@@ -230,7 +229,7 @@ def fetch_derivatives_snapshot(
     endpoints: BinanceEndpoints | None = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Fetch public USD-M positioning data, degrading optional series cleanly."""
+    """获取公开的 U 本位仓位数据，并安全降级缺失的可选序列。"""
     canonical = normalize_binance_symbol(symbol)
     cutoff_ms = _as_of_millis(as_of)
     client = session or requests.Session()
@@ -338,11 +337,10 @@ def collect_market_snapshot(
     endpoints: BinanceEndpoints | None = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    """Collect one immutable spot + perpetual market snapshot.
+    """采集一份不可变的现货与永续合约市场快照。
 
-    Spot data is required.  A missing perpetual market is represented through
-    ``warnings`` and ``None`` futures timeframes so spot-only assets remain
-    analyzable without inventing derivatives data.
+    现货数据是必需项。永续合约市场缺失时，通过 ``warnings`` 和值为 ``None``
+    的合约周期表示，使仅有现货的资产仍可分析，同时避免虚构合约数据。
     """
     canonical = normalize_binance_symbol(symbol)
     cutoff_ms = _as_of_millis(as_of)
@@ -409,7 +407,7 @@ def collect_market_snapshot(
 
 
 def save_market_snapshot(snapshot: dict[str, Any], path: str | Path) -> Path:
-    """Atomically save a snapshot as UTF-8 JSON and return its final path."""
+    """将快照以 UTF-8 JSON 原子写入磁盘，并返回最终路径。"""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_suffix(f"{target.suffix}.tmp")

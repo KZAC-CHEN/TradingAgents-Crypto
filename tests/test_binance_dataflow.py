@@ -1,4 +1,4 @@
-"""Binance market snapshots are tested entirely with mocked HTTP responses."""
+"""币安市场快照测试；所有 HTTP 响应均使用模拟数据。"""
 
 from __future__ import annotations
 
