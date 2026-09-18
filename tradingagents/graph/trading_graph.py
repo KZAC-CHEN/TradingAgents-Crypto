@@ -17,6 +17,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_balance_sheet,
     get_cashflow,
     get_crypto_market_report,
+    get_crypto_news_report,
     get_fundamentals,
     get_global_news,
     get_income_statement,
@@ -239,6 +240,8 @@ class TradingAgentsGraph:
                     get_insider_transactions,
                     get_macro_indicators,
                     get_prediction_markets,
+                    # 加密模式使用的统一新闻、公告和社会信息报告。
+                    get_crypto_news_report,
                 ]
             ),
             "fundamentals": ToolNode(

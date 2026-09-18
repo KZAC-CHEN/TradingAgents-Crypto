@@ -20,6 +20,9 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
     "TRADINGAGENTS_LLM_MAX_RETRIES":      "llm_max_retries",
     "TRADINGAGENTS_MAX_TOKENS":           "max_tokens",
+    "TRADINGAGENTS_CRYPTO_NEWS_LOOKBACK_DAYS": "crypto_news_lookback_days",
+    "TRADINGAGENTS_CRYPTO_NEWS_ARTICLE_LIMIT": "crypto_news_article_limit",
+    "TRADINGAGENTS_CRYPTO_NEWS_TIMEOUT":       "crypto_news_timeout",
     # Provider-specific reasoning/thinking knobs (None = each provider's own
     # default). Settable here for non-interactive runs; the CLI also offers an
     # interactive choice, which is skipped when the matching var is set.
@@ -122,6 +125,10 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "news_article_limit": 20,             # max articles per ticker (ticker-news)
     "global_news_article_limit": 10,      # max articles for global/macro news
     "global_news_lookback_days": 7,       # macro news lookback window
+    # 加密新闻统一快照的窗口、最终条目上限和单次请求超时。
+    "crypto_news_lookback_days": 7,
+    "crypto_news_article_limit": 50,
+    "crypto_news_timeout": 12.0,
     # Search queries used by get_global_news for macro headlines. Extend or
     # replace to broaden geographic / sector coverage.
     "global_news_queries": [

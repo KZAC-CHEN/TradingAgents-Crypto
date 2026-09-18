@@ -1,27 +1,11 @@
-"""Sentiment analyst — multi-source sentiment analysis for a target ticker.
+"""面向股票和加密资产的多来源情绪分析代理。
 
-Previously named ``social_media_analyst``. Renamed and redesigned because
-the old version had a prompt that demanded social-media analysis but the
-only tool available was Yahoo Finance news — which led LLMs to fabricate
-Reddit/X/StockTwits content under prompt pressure (verified live).
+股票模式预取 Yahoo Finance、StockTwits 和 Reddit；加密模式预取统一的新闻
+与事件快照，覆盖交易所公告、中英文新闻、项目事件、宏观公告和可选 X 数据。
+两种模式都在首次模型调用前注入证据，不允许模型自行调用外部工具。
 
-The redesigned agent pre-fetches three complementary data sources before
-the LLM is invoked and injects them into the prompt as structured blocks:
-
-  1. News headlines     — Yahoo Finance (institutional framing)
-  2. StockTwits messages — retail-trader posts indexed by cashtag, with
-                           user-labeled Bullish/Bearish sentiment tags
-  3. Reddit posts        — r/wallstreetbets, r/stocks, r/investing
-
-The agent does not use tool-calling; the data is in the prompt from
-turn 0. Output uses the structured-output pattern (json_schema for
-OpenAI/xAI, response_schema for Gemini, tool-use for Anthropic), falling
-back to free-text generation for providers that lack native support, so
-the sentiment header (band + score + confidence) is deterministic across
-runs and providers instead of free-form per-model prose.
-
-See: https://github.com/TauricResearch/TradingAgents/issues/557
-See: https://github.com/TauricResearch/TradingAgents/issues/796
+输出优先使用结构化模型接口，不支持时退回普通文本生成，使情绪区间、分数和
+置信度在不同模型供应商之间保持一致格式。
 """
 
 from datetime import datetime, timedelta
@@ -35,6 +19,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_language_instruction,
     get_news,
 )
+from tradingagents.agents.utils.crypto_news_tools import get_crypto_news_report_text
 from tradingagents.agents.utils.structured import (
     NO_EXTERNAL_TOOLS,
     bind_structured,
@@ -49,40 +34,41 @@ def _seven_days_back(trade_date: str) -> str:
 
 
 def create_sentiment_analyst(llm):
-    """Create a sentiment analyst node for the trading graph.
-
-    Pre-fetches news + StockTwits + Reddit data, injects them into the
-    prompt as structured blocks, and produces a deterministic sentiment
-    report via structured output (with a free-text fallback for providers
-    that do not support it).
-    """
+    """创建会预取对应资产来源并生成结构化报告的情绪分析节点。"""
     structured_llm = bind_structured(llm, SentimentReport, "Sentiment Analyst")
 
     def sentiment_analyst_node(state):
         ticker = state["company_of_interest"]
         end_date = state["trade_date"]
         start_date = _seven_days_back(end_date)
+        asset_type = state.get("asset_type", "stock")
         instrument_context = get_instrument_context_from_state(state)
 
-        # Pre-fetch all three sources. Each fetcher degrades gracefully and
-        # returns a string (no exceptions surface from here), so the LLM
-        # always sees something — either real data or a clear placeholder.
-        news_block = get_news.func(ticker, start_date, end_date)
-        # Pass the analysis window so a historical run trims social posts to it
-        # instead of leaking today's chatter into a backtest (#1220).
-        stocktwits_block = fetch_stocktwits_messages(
-            ticker, limit=30, start_date=start_date, end_date=end_date
-        )
-        reddit_block = fetch_reddit_posts(ticker, start_date=start_date, end_date=end_date)
+        if asset_type == "crypto":
+            crypto_news_block = get_crypto_news_report_text(ticker, end_date)
+            system_message = _build_crypto_system_message(
+                ticker=ticker,
+                start_date=start_date,
+                end_date=end_date,
+                crypto_news_block=crypto_news_block,
+            )
+        else:
+            # 股票模式继续预取原有三个来源，保持现有行为不变。
+            news_block = get_news.func(ticker, start_date, end_date)
+            # 将窗口传给社交来源，防止历史分析读入今天的帖子。
+            stocktwits_block = fetch_stocktwits_messages(
+                ticker, limit=30, start_date=start_date, end_date=end_date
+            )
+            reddit_block = fetch_reddit_posts(ticker, start_date=start_date, end_date=end_date)
 
-        system_message = _build_system_message(
-            ticker=ticker,
-            start_date=start_date,
-            end_date=end_date,
-            news_block=news_block,
-            stocktwits_block=stocktwits_block,
-            reddit_block=reddit_block,
-        )
+            system_message = _build_system_message(
+                ticker=ticker,
+                start_date=start_date,
+                end_date=end_date,
+                news_block=news_block,
+                stocktwits_block=stocktwits_block,
+                reddit_block=reddit_block,
+            )
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -125,6 +111,43 @@ def create_sentiment_analyst(llm):
         }
 
     return sentiment_analyst_node
+
+
+def _build_crypto_system_message(
+    *,
+    ticker: str,
+    start_date: str,
+    end_date: str,
+    crypto_news_block: str,
+) -> str:
+    """使用统一加密快照构建情绪分析提示词。"""
+    return f"""You are a crypto market sentiment analyst. Produce a comprehensive sentiment report for {ticker} covering {start_date} through {end_date}. All available evidence has already been collected into one date-bounded report below.
+
+## Unified crypto evidence
+
+<start_of_crypto_news>
+{crypto_news_block}
+<end_of_crypto_news>
+
+## Analysis rules
+
+1. Weight official Binance and OKX announcements, regulator releases, and central-bank releases above commentary or social posts.
+2. Use AiCoin as Chinese-language news and an X-information proxy. Clearly distinguish its proxy content from native X API content.
+3. Use CoinDesk Data or its official RSS fallback as English-language reporting. Do not infer that a source was queried when its coverage table says unavailable or unconfigured.
+4. Treat RootData items as project-fundamental events. Treat funding, token unlocks, governance, team changes, security incidents, and ecosystem adoption as separate catalyst types.
+5. Weight social engagement by both sample size and source quality. High engagement can indicate attention or crowding; it does not prove direction.
+6. Look for agreement and divergence across Chinese news, English news, official events, macro sources, and social information.
+7. Reduce confidence when coverage is sparse, failed, unconfigured, or limited to one source. Never invent missing headlines, posts, links, dates, or sentiment labels.
+8. Historical sentiment is evidence for the trader, not a price prediction.
+
+## Output fields
+
+- **overall_band**: Exactly one of Bullish / Mildly Bullish / Neutral / Mixed / Mildly Bearish / Bearish.
+- **overall_score**: A number from 0 to 10; 5 is neutral.
+- **confidence**: low / medium / high, based on coverage, source quality, and sample size.
+- **narrative**: Source-by-source evidence, divergences, dominant narratives, catalysts, risks, data limitations, and a Markdown summary table.
+
+{get_language_instruction()}"""
 
 
 def _build_system_message(
