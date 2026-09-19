@@ -46,6 +46,19 @@ export interface ConfigPayload {
   message?: string;
 }
 
+export interface ModelInfo {
+  id: string;
+  label: string;
+}
+
+export interface ModelDiscoveryResult {
+  provider: string;
+  models: ModelInfo[];
+  source: "api" | "catalog";
+  warning: string | null;
+  fetchedAt: string;
+}
+
 export interface AnalysisRunInput {
   symbol: string;
   analysis_date: string;

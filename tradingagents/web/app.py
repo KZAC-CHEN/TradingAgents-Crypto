@@ -24,6 +24,7 @@ from tradingagents.config_store import ConfigStore, ConfigValidationError
 from tradingagents.runtime import AnalysisRequest, AnalysisRunner, sanitize_runtime_config
 
 from .artifacts import index_run_artifacts, resolve_artifact_path
+from .model_discovery import ModelDiscoveryService
 from .run_manager import (
     TERMINAL_STATUSES,
     RunManager,
@@ -74,6 +75,13 @@ class AnalysisRunRequest(BaseModel):
             backend_url=self.backend_url,
             reasoning=self.reasoning,
         )
+
+
+class ModelDiscoveryRequest(BaseModel):
+    """请求后端使用已保存凭证发现供应商模型。"""
+
+    provider: str = Field(min_length=1, max_length=64)
+    refresh: bool = False
 
 
 def _default_database_path() -> Path:
@@ -174,6 +182,7 @@ def create_web_app(
     app.state.artifacts_root = Path(
         artifacts_root or _default_artifacts_root(resolved_database)
     ).resolve()
+    app.state.model_discovery = ModelDiscoveryService(app.state.config_store)
     app.state.run_manager = RunManager(
         app.state.run_store,
         app.state.config_store,
@@ -225,9 +234,23 @@ def create_web_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except OSError as exc:
             raise HTTPException(status_code=500, detail="无法写入配置文件。") from exc
+        request.app.state.model_discovery.clear()
         result = _config_payload(request.app)
         result["message"] = "配置已安全保存。新启动的分析任务会读取这些设置。"
         return result
+
+    @app.post("/api/models/discover")
+    async def discover_models(payload: ModelDiscoveryRequest, request: Request):
+        """使用服务端保存的凭证枚举当前账号可用模型。"""
+        _require_mutation_security(request)
+        try:
+            return await asyncio.to_thread(
+                request.app.state.model_discovery.discover,
+                payload.provider,
+                refresh=payload.refresh,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     def parse_analysis_request(payload: AnalysisRunRequest) -> AnalysisRequest:
         try:

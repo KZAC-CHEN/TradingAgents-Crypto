@@ -199,6 +199,12 @@ never accept keys, configuration snapshots and events are redacted, and
 artifact downloads resolve only database-registered IDs inside the generated
 run directory.
 
+The quick/deep model fields query the selected provider's model-list API with
+the credential already saved on the server. The browser receives model IDs but
+never the credential. Results are cached for five minutes and can be refreshed;
+when a provider cannot enumerate models or is temporarily unavailable, the UI
+shows the built-in catalog and still accepts a manually entered model ID.
+
 For frontend development, run the Python service and Vite separately:
 
 ```bash

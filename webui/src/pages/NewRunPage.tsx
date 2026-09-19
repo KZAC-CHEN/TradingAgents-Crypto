@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 
 import { api } from "../api";
+import { ModelInput } from "../components/ModelInput";
 import { detectAssetType, localIsoDate, normalizeSymbol } from "../lib/format";
 import type { AnalysisRunInput, ConfigField, PreflightResult } from "../types";
 
@@ -73,6 +74,14 @@ export function NewRunPage() {
   const symbol = form.watch("symbol");
   const assetType = detectAssetType(symbol);
   const providerField = fieldByName(fields, "TRADINGAGENTS_LLM_PROVIDER");
+  const selectedProvider = form.watch("llm_provider") || providerField?.value || "";
+  const modelQuery = useQuery({
+    queryKey: ["models", selectedProvider],
+    queryFn: () => api.discoverModels(configQuery.data!.csrfToken, selectedProvider),
+    enabled: Boolean(configQuery.data && selectedProvider),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
   const optionalWarnings = [
     ["AICOIN_ACCESS_KEY_ID", "AiCoin 中文新闻与 X 代理"],
     ["COINDESK_API_KEY", "CoinDesk Data API"],
@@ -161,9 +170,10 @@ export function NewRunPage() {
             <div className="section-copy"><h2>模型覆盖</h2><p>留空时读取全局设置；只对当前任务生效。</p></div>
             <div className="field-grid two-columns">
               <label className="field-control field-span-two"><span>模型供应商</span><select {...form.register("llm_provider")}><option value="">使用全局设置</option>{providerField?.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label className="field-control"><span>快速模型</span><input {...form.register("quick_model")} placeholder="使用全局设置" /></label>
-              <label className="field-control"><span>深度模型</span><input {...form.register("deep_model")} placeholder="使用全局设置" /></label>
+              <label className="field-control"><span>快速模型</span><ModelInput models={modelQuery.data?.models} {...form.register("quick_model")} placeholder="使用全局设置或选择模型" /></label>
+              <label className="field-control"><span>深度模型</span><ModelInput models={modelQuery.data?.models} {...form.register("deep_model")} placeholder="使用全局设置或选择模型" /></label>
             </div>
+            {selectedProvider ? <div className={`model-discovery compact ${modelQuery.data?.warning ? "warning" : ""}`}><div><strong>{modelQuery.isLoading ? "正在读取模型…" : modelQuery.data?.source === "api" ? `${modelQuery.data.models.length} 个 API 可用模型` : "使用内置模型目录"}</strong><span>{modelQuery.data?.warning || "点击输入框即可选择，也支持手工输入。"}</span></div></div> : null}
           </section>
         </div>
 

@@ -3,6 +3,7 @@ import type {
   AnalysisRunInput,
   Artifact,
   ConfigPayload,
+  ModelDiscoveryResult,
   PreflightResult,
 } from "./types";
 
@@ -52,6 +53,11 @@ export const api = {
       ...mutationInit(csrfToken, { updates, deletes }),
       method: "PUT",
     }),
+  discoverModels: (csrfToken: string, provider: string, refresh = false) =>
+    apiFetch<ModelDiscoveryResult>(
+      "/api/models/discover",
+      mutationInit(csrfToken, { provider, refresh }),
+    ),
   listRuns: () => apiFetch<{ items: AnalysisRun[] }>("/api/runs"),
   getRun: (runId: string) => apiFetch<AnalysisRun>(`/api/runs/${runId}`),
   preflight: (csrfToken: string, input: AnalysisRunInput) =>

@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Eye, EyeOff, KeyRound, LoaderCircle, Save, ShieldCheck, Trash2 } from "lucide-react";
+import { Check, Eye, EyeOff, KeyRound, LoaderCircle, RefreshCw, Save, ShieldCheck, Trash2 } from "lucide-react";
 import { type ChangeEvent, useMemo, useState } from "react";
 
 import { api } from "../api";
-import type { ConfigField } from "../types";
+import { ModelInput } from "../components/ModelInput";
+import type { ConfigField, ModelInfo } from "../types";
 
 function SettingInput({
   field,
@@ -11,12 +12,14 @@ function SettingInput({
   cleared,
   onChange,
   onClear,
+  models,
 }: {
   field: ConfigField;
   value: string;
   cleared: boolean;
   onChange: (value: string) => void;
   onClear: () => void;
+  models?: ModelInfo[];
 }) {
   const [visible, setVisible] = useState(false);
   const common = {
@@ -29,6 +32,13 @@ function SettingInput({
       <div className="setting-input-row">
         {field.inputType === "select" ? (
           <select id={field.name} {...common}><option value="">使用项目默认值</option>{field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+        ) : field.name === "TRADINGAGENTS_QUICK_THINK_LLM" || field.name === "TRADINGAGENTS_DEEP_THINK_LLM" ? (
+          <ModelInput
+            id={field.name}
+            models={models}
+            placeholder={field.placeholder || "输入或选择模型 ID"}
+            {...common}
+          />
         ) : (
           <input
             id={field.name}
@@ -58,6 +68,20 @@ export function SettingsPage() {
   const [message, setMessage] = useState("");
   const data = configQuery.data;
   const group = useMemo(() => data?.groups.find((item) => item.id === activeGroup) ?? data?.groups[0], [activeGroup, data]);
+  const fields = useMemo(() => data?.groups.flatMap((item) => item.fields) ?? [], [data]);
+  const providerField = fields.find((field) => field.name === "TRADINGAGENTS_LLM_PROVIDER");
+  const selectedProvider = updates.TRADINGAGENTS_LLM_PROVIDER ?? providerField?.value ?? "";
+  const modelQuery = useQuery({
+    queryKey: ["models", selectedProvider],
+    queryFn: () => api.discoverModels(data!.csrfToken, selectedProvider),
+    enabled: activeGroup === "runtime" && Boolean(data && selectedProvider),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  const refreshMutation = useMutation({
+    mutationFn: () => api.discoverModels(data!.csrfToken, selectedProvider, true),
+    onSuccess: (result) => queryClient.setQueryData(["models", selectedProvider], result),
+  });
 
   const saveMutation = useMutation({
     mutationFn: () => {
@@ -69,6 +93,7 @@ export function SettingsPage() {
       setUpdates({});
       setDeletes(new Set());
       setMessage(result.message || "配置已保存。");
+      void queryClient.invalidateQueries({ queryKey: ["models"] });
     },
   });
 
@@ -112,8 +137,19 @@ export function SettingsPage() {
         </nav>
         <section className="panel settings-panel">
           <div className="panel-heading"><div><p className="eyebrow">CONFIG GROUP</p><h2>{group.title}</h2></div><p>{group.description}</p></div>
+          {group.id === "runtime" && selectedProvider ? (
+            <div className={`model-discovery ${modelQuery.data?.warning ? "warning" : ""}`}>
+              <div>
+                <strong>{modelQuery.isLoading ? "正在读取可用模型…" : modelQuery.data?.source === "api" ? `已从 ${selectedProvider} API 获取 ${modelQuery.data.models.length} 个模型` : "正在使用内置模型目录"}</strong>
+                <span>{modelQuery.data?.warning || "可直接选择模型，也可以手工输入模型 ID。"}</span>
+              </div>
+              <button type="button" className="button button-secondary-light" disabled={refreshMutation.isPending} onClick={() => refreshMutation.mutate()}>
+                <RefreshCw className={refreshMutation.isPending ? "spin" : ""} size={16} />刷新模型
+              </button>
+            </div>
+          ) : null}
           <div className="settings-grid">
-            {group.fields.map((field) => <SettingInput key={field.name} field={field} value={updates[field.name] ?? (field.secret ? "" : field.value)} cleared={deletes.has(field.name)} onChange={(value) => changeField(field, value)} onClear={() => clearField(field.name)} />)}
+            {group.fields.map((field) => <SettingInput key={field.name} field={field} value={updates[field.name] ?? (field.secret ? "" : field.value)} cleared={deletes.has(field.name)} onChange={(value) => changeField(field, value)} onClear={() => clearField(field.name)} models={modelQuery.data?.models} />)}
           </div>
         </section>
       </div>
