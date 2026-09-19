@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -22,6 +23,13 @@ class StatsCallbackHandler(BaseCallbackHandler):
         self.tool_calls = 0
         self.tokens_in = 0
         self.tokens_out = 0
+        self._llm_started: dict[str, tuple[float, str]] = {}
+        self._tool_started: dict[str, tuple[float, str]] = {}
+
+    @staticmethod
+    def _run_key(kwargs: dict[str, Any]) -> str:
+        """从 LangChain 回调参数提取稳定的运行标识。"""
+        return str(kwargs.get("run_id") or threading.get_ident())
 
     def _emit(self, event_type: str, payload: dict[str, Any]) -> None:
         if self._event_sink is not None:
@@ -36,7 +44,9 @@ class StatsCallbackHandler(BaseCallbackHandler):
         """记录普通 LLM 调用开始。"""
         with self._lock:
             self.llm_calls += 1
-        self._emit("llm.started", {"name": serialized.get("name") or "LLM"})
+            name = serialized.get("name") or "LLM"
+            self._llm_started[self._run_key(kwargs)] = (time.monotonic(), name)
+        self._emit("llm.started", {"name": name})
 
     def on_chat_model_start(
         self,
@@ -47,7 +57,9 @@ class StatsCallbackHandler(BaseCallbackHandler):
         """记录聊天模型调用开始。"""
         with self._lock:
             self.llm_calls += 1
-        self._emit("llm.started", {"name": serialized.get("name") or "ChatModel"})
+            name = serialized.get("name") or "ChatModel"
+            self._llm_started[self._run_key(kwargs)] = (time.monotonic(), name)
+        self._emit("llm.started", {"name": name})
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
         """从模型响应提取 Token 统计。"""
@@ -64,6 +76,18 @@ class StatsCallbackHandler(BaseCallbackHandler):
             with self._lock:
                 self.tokens_in += usage_metadata.get("input_tokens", 0)
                 self.tokens_out += usage_metadata.get("output_tokens", 0)
+        with self._lock:
+            started_at, name = self._llm_started.pop(
+                self._run_key(kwargs), (time.monotonic(), "LLM")
+            )
+        self._emit(
+            "llm.completed",
+            {
+                "name": name,
+                "duration_seconds": max(0.0, time.monotonic() - started_at),
+                "usage": usage_metadata or {},
+            },
+        )
         self._emit("stats.updated", self.get_stats())
 
     def on_tool_start(
@@ -75,18 +99,61 @@ class StatsCallbackHandler(BaseCallbackHandler):
         """记录工具调用开始，但不持久化可能过大的完整输入。"""
         with self._lock:
             self.tool_calls += 1
+            name = serialized.get("name") or "tool"
+            self._tool_started[self._run_key(kwargs)] = (time.monotonic(), name)
         self._emit(
             "tool.started",
             {
-                "name": serialized.get("name") or "tool",
+                "name": name,
                 "input": str(input_str)[:2000],
             },
         )
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:
         """记录工具调用结束和最新统计。"""
-        self._emit("tool.completed", {"status": "ok"})
+        with self._lock:
+            started_at, name = self._tool_started.pop(
+                self._run_key(kwargs), (time.monotonic(), "tool")
+            )
+        self._emit(
+            "tool.completed",
+            {
+                "name": name,
+                "status": "ok",
+                "duration_seconds": max(0.0, time.monotonic() - started_at),
+            },
+        )
         self._emit("stats.updated", self.get_stats())
+
+    def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
+        """记录模型调用错误，供 Web 运行日志展示。"""
+        with self._lock:
+            started_at, name = self._llm_started.pop(
+                self._run_key(kwargs), (time.monotonic(), "LLM")
+            )
+        self._emit(
+            "llm.failed",
+            {
+                "name": name,
+                "error": str(error),
+                "duration_seconds": max(0.0, time.monotonic() - started_at),
+            },
+        )
+
+    def on_tool_error(self, error: BaseException, **kwargs: Any) -> None:
+        """记录工具调用错误，供 Web 运行日志展示。"""
+        with self._lock:
+            started_at, name = self._tool_started.pop(
+                self._run_key(kwargs), (time.monotonic(), "tool")
+            )
+        self._emit(
+            "tool.failed",
+            {
+                "name": name,
+                "error": str(error),
+                "duration_seconds": max(0.0, time.monotonic() - started_at),
+            },
+        )
 
     def get_stats(self) -> dict[str, Any]:
         """返回当前统计快照。"""
