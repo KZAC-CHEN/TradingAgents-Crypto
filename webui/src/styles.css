@@ -300,16 +300,29 @@ button { color: inherit; }
 .run-overview-grid { display: grid; grid-template-columns: minmax(290px, 2fr) repeat(4, minmax(105px, 1fr)); gap: 11px; }
 .progress-card { padding: 18px 19px; }
 .progress-card-head { display: flex; justify-content: space-between; align-items: flex-start; }
-.progress-card-head h2 { margin: 0; font-size: 16px; }
-.progress-card-head > strong { color: var(--accent); font-size: 23px; letter-spacing: -.04em; }
+.progress-card-head h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; }
+.progress-card-head > strong { color: var(--accent); font-size: 23px; letter-spacing: -.04em; animation: metric-pop .25s ease-out; }
+.progress-activity { margin: 5px 0 0; color: var(--muted); font-size: 8px; }
+.stage-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 38%, transparent); animation: live-pulse 1.6s ease-out infinite; }
 .progress-track { height: 6px; margin: 16px 0 12px; overflow: hidden; border-radius: 99px; background: var(--surface-soft); }
-.progress-track span { display: block; height: 100%; min-width: 0; border-radius: inherit; background: var(--accent); transition: width .3s ease; }
+.progress-track span { position: relative; display: block; height: 100%; min-width: 0; overflow: hidden; border-radius: inherit; background: var(--accent); transition: width .45s ease; }
+.progress-active:not(.progress-indeterminate) span::after { position: absolute; inset: 0; content: ""; background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.45) 48%, transparent 100%); transform: translateX(-100%); animation: progress-sheen 1.8s ease-in-out infinite; }
+.progress-indeterminate span { min-width: 90px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 45%, transparent), var(--accent), color-mix(in srgb, var(--accent) 45%, transparent)); animation: progress-indeterminate 1.35s ease-in-out infinite; }
 .progress-meta { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 9px; }
 .progress-meta span { display: flex; align-items: center; gap: 5px; }
+.progress-heartbeat { color: var(--success); }
 .runtime-stat { min-height: 126px; display: flex; flex-direction: column; padding: 17px; }
-.runtime-stat > svg { color: var(--accent); }
+.runtime-stat-icon { display: flex; align-items: center; justify-content: space-between; color: var(--accent); }
+.runtime-stat-icon > i { width: 7px; height: 7px; border-radius: 50%; background: var(--success); animation: live-pulse 1.6s ease-out infinite; }
 .runtime-stat span { margin-top: auto; color: var(--muted); font-size: 9px; }
 .runtime-stat strong { margin-top: 2px; font-size: 21px; letter-spacing: -.035em; }
+.runtime-stat small { min-height: 12px; margin-top: 4px; overflow: hidden; color: var(--faint); font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-stat-active { border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent), var(--shadow-small); }
+.runtime-stat-value { animation: metric-pop .25s ease-out; }
+@keyframes progress-indeterminate { 0% { transform: translateX(-120%); } 100% { transform: translateX(330%); } }
+@keyframes progress-sheen { 0%, 30% { transform: translateX(-100%); } 75%, 100% { transform: translateX(100%); } }
+@keyframes live-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 38%, transparent); } 70%, 100% { box-shadow: 0 0 0 7px transparent; } }
+@keyframes metric-pop { from { opacity: .55; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
 .run-content-grid { display: grid; grid-template-columns: minmax(330px, .9fr) minmax(430px, 1.25fr); gap: 15px; align-items: start; }
 .timeline-panel .panel-heading > span { color: var(--muted); font-size: 9px; }
 .agent-groups { padding: 6px 22px 18px; }
@@ -480,6 +493,8 @@ button { color: inherit; }
   .decision-overview { grid-template-columns: 1fr; }
   .decision-health { grid-column: auto; }
   .coverage-list { grid-template-columns: 1fr; }
+  .progress-meta { flex-wrap: wrap; }
+  .progress-heartbeat { order: 3; width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

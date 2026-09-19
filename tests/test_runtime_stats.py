@@ -40,3 +40,30 @@ def test_stats_handler_emits_timed_llm_and_tool_events():
         "tokens_in": 12,
         "tokens_out": 5,
     }
+
+
+def test_stats_handler_reads_openai_compatible_token_usage_fallback():
+    events = []
+    handler = StatsCallbackHandler(lambda event_type, payload: events.append((event_type, payload)))
+    run_id = uuid4()
+    handler.on_chat_model_start({"name": "deepseek"}, [[]], run_id=run_id)
+    response = SimpleNamespace(
+        generations=[[SimpleNamespace(message=AIMessage(content="ok"))]],
+        llm_output={
+            "token_usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 35,
+                "total_tokens": 155,
+            }
+        },
+    )
+
+    handler.on_llm_end(response, run_id=run_id)
+
+    assert handler.get_stats() == {
+        "llm_calls": 1,
+        "tool_calls": 0,
+        "tokens_in": 120,
+        "tokens_out": 35,
+    }
+    assert [event_type for event_type, _ in events].count("stats.updated") == 2

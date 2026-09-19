@@ -19,14 +19,14 @@ import {
   Square,
   Wrench,
 } from "lucide-react";
-import { useMemo } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import { StatusBadge } from "../components/StatusBadge";
 import { useRunEvents } from "../hooks/useRunEvents";
 import { formatDateTime, formatDuration, STATUS_LABELS } from "../lib/format";
-import type { AnalysisRun, RunEvent } from "../types";
+import type { AnalysisRun, RunEvent, RunStatus } from "../types";
 
 const TERMINAL = new Set(["succeeded", "degraded", "cancelled", "failed", "interrupted"]);
 const ACTIVE = new Set(["queued", "preflight", "evidence", "running", "cancel_requested"]);
@@ -108,6 +108,69 @@ function formatSeconds(value?: number): string {
   return value < 60 ? `${value.toFixed(1)} 秒` : `${Math.floor(value / 60)} 分 ${Math.round(value % 60)} 秒`;
 }
 
+export function calculateOverallProgress(
+  status: RunStatus,
+  completedAgents: number,
+  totalAgents: number,
+): number {
+  if (["succeeded", "degraded"].includes(status)) return 100;
+  if (status === "queued") return 0;
+  if (status === "preflight") return 3;
+  if (status === "evidence") return 8;
+  if (totalAgents > 0) {
+    return Math.min(95, 10 + Math.round((Math.min(completedAgents, totalAgents) / totalAgents) * 85));
+  }
+  return status === "running" || status === "cancel_requested" ? 10 : 0;
+}
+
+function useLiveClock(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    if (!active) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  return now;
+}
+
+function elapsedSince(value: string | null | undefined, now: number): string {
+  if (!value) return "刚刚";
+  const seconds = Math.max(0, Math.floor((now - new Date(value).getTime()) / 1_000));
+  if (seconds < 5) return "刚刚";
+  if (seconds < 60) return `${seconds} 秒`;
+  return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+}
+
+function lastUpdateLabel(value: string | null, now: number): string {
+  if (!value) return "等待首个事件";
+  const elapsed = elapsedSince(value, now);
+  return elapsed === "刚刚" ? "刚刚更新" : `${elapsed}前更新`;
+}
+
+function RuntimeMetric({
+  icon,
+  label,
+  value,
+  detail,
+  active = false,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: number;
+  detail: string;
+  active?: boolean;
+}) {
+  return (
+    <article className={`runtime-stat panel ${active ? "runtime-stat-active" : ""}`}>
+      <div className="runtime-stat-icon">{icon}{active ? <i /> : null}</div>
+      <span>{label}</span>
+      <strong className="runtime-stat-value" key={value}>{value.toLocaleString()}</strong>
+      <small>{detail}</small>
+    </article>
+  );
+}
+
 function RunActions({ run }: { run: AnalysisRun }) {
   const queryClient = useQueryClient();
   const config = useQuery({ queryKey: ["config"], queryFn: api.getConfig });
@@ -140,6 +203,7 @@ export function RunDetailPage() {
   });
   const terminal = TERMINAL.has(query.data?.status || "");
   const runtime = useRunEvents(runId, !terminal);
+  const now = useLiveClock(!terminal);
   const visibleAgents = useMemo(() => {
     const selected = new Set(query.data?.request.analysts || []);
     const selectedNames = new Set([
@@ -159,8 +223,43 @@ export function RunDetailPage() {
   if (query.isError || !query.data) return <div className="error-banner">无法读取任务：{query.error?.message}</div>;
   const run = query.data;
   const completed = ["succeeded", "degraded"].includes(run.status);
-  const percentage = runtime.totalAgents ? Math.round((runtime.completedAgents / runtime.totalAgents) * 100) : completed ? 100 : 0;
-  const elapsed = formatDuration(run.started_at, run.finished_at);
+  const percentage = calculateOverallProgress(run.status, runtime.completedAgents, runtime.totalAgents);
+  const elapsed = formatDuration(run.started_at, run.finished_at || new Date(now).toISOString());
+  const indeterminate = ["preflight", "evidence"].includes(run.status);
+  const activelyRunning = ACTIVE.has(run.status) && run.status !== "queued" && run.status !== "cancel_requested";
+  const activity = runtime.activeTool
+    ? `${runtime.activeTool.name} 正在执行`
+    : runtime.activeLlm
+      ? `${runtime.activeLlm.name} 正在生成`
+      : runtime.currentAgent
+        ? `${AGENT_LABELS[runtime.currentAgent.name] || runtime.currentAgent.name} 正在分析`
+        : run.status === "evidence"
+          ? "正在采集并校验证据"
+          : run.status === "preflight"
+            ? "正在检查运行配置"
+            : run.status === "queued"
+              ? "等待工作线程"
+              : completed
+                ? "全部阶段已完成"
+                : "等待下一个运行事件";
+  const activityStartedAt = runtime.activeTool?.startedAt
+    || runtime.activeLlm?.startedAt
+    || runtime.currentAgent?.startedAt
+    || runtime.lastActivityAt
+    || run.started_at;
+  const agentProgress = runtime.totalAgents
+    ? `${runtime.completedAgents}/${runtime.totalAgents} Agent`
+    : run.status === "evidence"
+      ? "证据采集中"
+      : run.status === "preflight"
+        ? "配置预检中"
+        : "等待 Agent";
+  const lastUpdate = lastUpdateLabel(runtime.lastActivityAt, now);
+  const activityTiming = activelyRunning
+    ? `已持续 ${elapsedSince(activityStartedAt, now)}`
+    : completed
+      ? lastUpdate
+      : elapsedSince(activityStartedAt, now);
 
   return (
     <div className="page-stack run-detail-page">
@@ -171,7 +270,7 @@ export function RunDetailPage() {
           <div><p className="eyebrow">RUN #{run.run_id.slice(0, 8)}</p><h1>{run.request.symbol}</h1><span>{run.request.analysis_date} · 第 {run.attempt} 次执行 · {run.request.analysts.length} 位分析师</span></div>
         </div>
         <div className="run-header-side">
-          <div className={`connection-state connection-${runtime.connection}`}><i />{runtime.connection === "live" ? "实时连接" : runtime.connection === "reconnecting" ? "正在重连" : terminal ? "事件已同步" : "正在连接"}</div>
+          <div className={`connection-state connection-${runtime.connection}`}><i />{runtime.connection === "live" ? `实时连接 · ${lastUpdate}` : runtime.connection === "reconnecting" ? "正在重连" : terminal ? "事件已同步" : "正在连接"}</div>
           <StatusBadge status={run.status} />
           {terminal ? <Link className="button button-secondary-light" to={`/runs/${run.run_id}/reports`}><FileText size={16} />浏览报告与证据</Link> : null}
           <RunActions run={run} />
@@ -185,14 +284,14 @@ export function RunDetailPage() {
 
       <section className="run-overview-grid">
         <article className="progress-card panel">
-          <div className="progress-card-head"><div><p className="eyebrow">CURRENT STAGE</p><h2>{STATUS_LABELS[run.stage]}</h2></div><strong>{percentage}%</strong></div>
-          <div className="progress-track"><span style={{ width: `${percentage}%` }} /></div>
-          <div className="progress-meta"><span><Check size={14} />{runtime.completedAgents}/{runtime.totalAgents || "—"} Agent</span><span><Clock3 size={14} />{elapsed}</span></div>
+          <div className="progress-card-head"><div><p className="eyebrow">CURRENT STAGE</p><h2>{STATUS_LABELS[run.stage]}{activelyRunning ? <i className="stage-live-dot" /> : null}</h2><p className="progress-activity">{activity} · {activityTiming}</p></div><strong key={percentage}>{percentage}%</strong></div>
+          <div className={`progress-track ${indeterminate ? "progress-indeterminate" : ""} ${activelyRunning ? "progress-active" : ""}`} role="progressbar" aria-label="分析总进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={indeterminate ? undefined : percentage} aria-valuetext={indeterminate ? `${activity}，进度持续更新中` : `${percentage}%`}><span style={{ width: indeterminate ? "34%" : `${percentage}%` }} /></div>
+          <div className="progress-meta"><span><Check size={14} />{agentProgress}</span><span className="progress-heartbeat"><Activity size={13} />{lastUpdate}</span><span><Clock3 size={14} />{elapsed}</span></div>
         </article>
-        <article className="runtime-stat panel"><BrainCircuit /><span>LLM 调用</span><strong>{runtime.stats.llm_calls}</strong></article>
-        <article className="runtime-stat panel"><Wrench /><span>工具调用</span><strong>{runtime.stats.tool_calls}</strong></article>
-        <article className="runtime-stat panel"><Play /><span>输入 Token</span><strong>{runtime.stats.tokens_in.toLocaleString()}</strong></article>
-        <article className="runtime-stat panel"><FileText /><span>输出 Token</span><strong>{runtime.stats.tokens_out.toLocaleString()}</strong></article>
+        <RuntimeMetric icon={<BrainCircuit />} label="LLM 调用" value={runtime.stats.llm_calls} active={Boolean(runtime.activeLlm)} detail={runtime.activeLlm ? `${runtime.activeLlm.name} 运行中` : runtime.stats.llm_calls ? "实时累计" : "等待调用"} />
+        <RuntimeMetric icon={<Wrench />} label="工具调用" value={runtime.stats.tool_calls} active={Boolean(runtime.activeTool)} detail={runtime.activeTool ? `${runtime.activeTool.name} 执行中` : runtime.stats.tool_calls ? "实时累计" : run.status === "evidence" ? "证据预采集中" : "等待调用"} />
+        <RuntimeMetric icon={<Play />} label="输入 Token" value={runtime.stats.tokens_in} active={Boolean(runtime.activeLlm)} detail={runtime.stats.tokens_in ? "供应商实时用量" : runtime.stats.llm_calls ? "等待供应商返回用量" : "尚未产生"} />
+        <RuntimeMetric icon={<FileText />} label="输出 Token" value={runtime.stats.tokens_out} active={Boolean(runtime.activeLlm)} detail={runtime.stats.tokens_out ? "供应商实时用量" : runtime.stats.llm_calls ? "等待供应商返回用量" : "尚未产生"} />
       </section>
 
       <div className="run-content-grid">

@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AnalysisRun, RunStatus } from "../types";
-import { RunDetailPage } from "./RunDetailPage";
+import { calculateOverallProgress, RunDetailPage } from "./RunDetailPage";
 
 class MockEventSource {
   onopen: (() => void) | null = null;
@@ -73,6 +73,16 @@ describe("任务详情状态", () => {
     expect(await screen.findByRole("button", { name: "取消任务" })).toBeEnabled();
   });
 
+  it("证据阶段显示活动进度而不是静止零值", async () => {
+    renderRun(run("evidence", { started_at: "2026-09-19T00:00:00Z" }));
+    expect(await screen.findByText("8%")).toBeInTheDocument();
+    expect(screen.getByText("证据采集中")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "分析总进度" })).toHaveAttribute(
+      "aria-valuetext",
+      expect.stringContaining("进度持续更新中"),
+    );
+  });
+
   it("失败且有 checkpoint 时显示恢复操作", async () => {
     renderRun(run("failed", { checkpoint_available: true, error: "模拟失败" }));
     expect(await screen.findByText("任务执行失败")).toBeInTheDocument();
@@ -100,5 +110,15 @@ describe("任务详情状态", () => {
     expect(await screen.findByText(/最终建议 HOLD/)).toBeInTheDocument();
     expect(screen.getByText("失败分区：market")).toBeInTheDocument();
     expect(screen.getAllByText("降级完成").length).toBeGreaterThan(1);
+  });
+});
+
+describe("运行总进度", () => {
+  it("为预检、证据、Agent 和完成阶段计算连续里程碑", () => {
+    expect(calculateOverallProgress("queued", 0, 0)).toBe(0);
+    expect(calculateOverallProgress("preflight", 0, 0)).toBe(3);
+    expect(calculateOverallProgress("evidence", 0, 0)).toBe(8);
+    expect(calculateOverallProgress("running", 6, 12)).toBe(53);
+    expect(calculateOverallProgress("succeeded", 12, 12)).toBe(100);
   });
 });

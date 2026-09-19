@@ -9,6 +9,11 @@ export interface RuntimeStats {
   tokens_out: number;
 }
 
+export interface ActiveOperation {
+  name: string;
+  startedAt: string;
+}
+
 export interface RunEventState {
   events: RunEvent[];
   seenEventIds: Set<number>;
@@ -20,6 +25,10 @@ export interface RunEventState {
   elapsedSeconds: number;
   reports: Record<string, string>;
   stats: RuntimeStats;
+  currentAgent: ActiveOperation | null;
+  activeLlm: ActiveOperation | null;
+  activeTool: ActiveOperation | null;
+  lastActivityAt: string | null;
   error: string | null;
   connection: "connecting" | "live" | "reconnecting" | "closed";
 }
@@ -40,6 +49,10 @@ export const initialRunEventState: RunEventState = {
   elapsedSeconds: 0,
   reports: {},
   stats: { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0 },
+  currentAgent: null,
+  activeLlm: null,
+  activeTool: null,
+  lastActivityAt: null,
   error: null,
   connection: "connecting",
 };
@@ -73,6 +86,7 @@ export function runEventReducer(state: RunEventState, action: RunEventAction): R
     seenEventIds,
     lastEventId: Math.max(state.lastEventId, event.event_id),
     events: [...state.events, event].slice(-500),
+    lastActivityAt: event.created_at,
   };
   if (event.event_type === "progress.updated" || event.event_type === "run.started") {
     next.agents = { ...state.agents, ...stringRecord(event.payload.agents) };
@@ -81,7 +95,23 @@ export function runEventReducer(state: RunEventState, action: RunEventAction): R
     next.totalAgents = numberValue(event.payload.total_agents, state.totalAgents);
     next.elapsedSeconds = numberValue(event.payload.elapsed_seconds, state.elapsedSeconds);
     next.reports = { ...state.reports, ...stringRecord(event.payload.reports) };
+    const activeAgent = Object.entries(next.agents).find(([, status]) => status === "in_progress")?.[0];
+    if (activeAgent) {
+      next.currentAgent = state.currentAgent?.name === activeAgent
+        ? state.currentAgent
+        : { name: activeAgent, startedAt: event.created_at };
+    } else if (event.event_type === "progress.updated") {
+      next.currentAgent = null;
+    }
   }
+  if (event.event_type === "llm.started") {
+    next.activeLlm = { name: String(event.payload.name || "模型"), startedAt: event.created_at };
+  }
+  if (event.event_type === "llm.completed" || event.event_type === "llm.failed") next.activeLlm = null;
+  if (event.event_type === "tool.started") {
+    next.activeTool = { name: String(event.payload.name || "工具"), startedAt: event.created_at };
+  }
+  if (event.event_type === "tool.completed" || event.event_type === "tool.failed") next.activeTool = null;
   if (event.event_type === "stats.updated" || event.event_type === "run.completed") {
     const source = event.event_type === "run.completed" ? event.payload.stats : event.payload;
     if (source && typeof source === "object" && !Array.isArray(source)) {
@@ -96,6 +126,11 @@ export function runEventReducer(state: RunEventState, action: RunEventAction): R
   }
   if (event.event_type === "run.failed") {
     next.error = typeof event.payload.error === "string" ? event.payload.error : "分析失败。";
+  }
+  if (["run.completed", "run.succeeded", "run.degraded", "run.cancelled", "run.interrupted", "run.failed"].includes(event.event_type)) {
+    next.currentAgent = null;
+    next.activeLlm = null;
+    next.activeTool = null;
   }
   return next;
 }
