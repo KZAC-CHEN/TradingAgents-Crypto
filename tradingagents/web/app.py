@@ -2,22 +2,33 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import secrets
 import threading
+import time
 import webbrowser
 from contextlib import asynccontextmanager
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from tradingagents.config_store import ConfigStore, ConfigValidationError
+from tradingagents.runtime import AnalysisRequest, AnalysisRunner, sanitize_runtime_config
 
+from .run_manager import (
+    TERMINAL_STATUSES,
+    RunManager,
+    build_runtime_config,
+    preflight_analysis,
+)
 from .run_store import RunStore
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -31,8 +42,44 @@ class ConfigUpdateRequest(BaseModel):
     deletes: list[str] = Field(default_factory=list)
 
 
+class AnalysisRunRequest(BaseModel):
+    """创建或预检一次分析所需的非敏感输入。"""
+
+    symbol: str = Field(min_length=1, max_length=64)
+    analysis_date: str
+    analysts: list[str] = Field(default_factory=lambda: ["market", "social", "news", "fundamentals"])
+    research_depth: int = Field(default=1, ge=1, le=10)
+    checkpoint_enabled: bool = True
+    llm_provider: str | None = Field(default=None, max_length=64)
+    quick_model: str | None = Field(default=None, max_length=256)
+    deep_model: str | None = Field(default=None, max_length=256)
+    output_language: str | None = Field(default=None, max_length=64)
+    backend_url: str | None = Field(default=None, max_length=2048)
+    reasoning: dict[str, str | None] = Field(default_factory=dict)
+
+    def to_runtime_request(self) -> AnalysisRequest:
+        """转换为与 CLI 共用的不可变请求。"""
+        return AnalysisRequest(
+            symbol=self.symbol,
+            analysis_date=self.analysis_date,
+            analysts=tuple(self.analysts),
+            research_depth=self.research_depth,
+            checkpoint_enabled=self.checkpoint_enabled,
+            llm_provider=self.llm_provider,
+            quick_model=self.quick_model,
+            deep_model=self.deep_model,
+            output_language=self.output_language,
+            backend_url=self.backend_url,
+            reasoning=self.reasoning,
+        )
+
+
 def _default_database_path() -> Path:
     return Path.home() / ".tradingagents" / "web" / "runs.db"
+
+
+def _default_artifacts_root(database_path: Path) -> Path:
+    return database_path.parent / "runs"
 
 
 def _frontend_root() -> Path:
@@ -81,14 +128,34 @@ def create_web_app(
     csrf_token: str | None = None,
     frontend_root: str | Path | None = None,
     allowed_hosts: set[str] | None = None,
+    artifacts_root: str | Path | None = None,
+    runner_factory: Any = AnalysisRunner,
+    start_run_manager: bool = True,
 ) -> FastAPI:
     """创建只为本机单用户设计的 Web 应用。"""
     allowed = set(allowed_hosts or _LOOPBACK_HOSTS)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        active_runs = [
+            run
+            for run in app.state.run_store.list_runs(limit=200)
+            if run["status"] in {"preflight", "evidence", "running", "cancel_requested"}
+        ]
         app.state.run_store.mark_active_runs_interrupted()
-        yield
+        for run in active_runs:
+            app.state.run_store.append_event(
+                run["run_id"],
+                "run.interrupted",
+                {"error": "Web 服务在任务运行期间停止。"},
+            )
+        if app.state.start_run_manager:
+            app.state.run_manager.start()
+        try:
+            yield
+        finally:
+            if app.state.start_run_manager:
+                app.state.run_manager.stop()
 
     app = FastAPI(
         title="TradingAgents Web",
@@ -97,10 +164,21 @@ def create_web_app(
         redoc_url=None,
         lifespan=lifespan,
     )
+    resolved_database = Path(database_path or _default_database_path()).resolve()
     app.state.config_store = ConfigStore(env_path)
-    app.state.run_store = RunStore(database_path or _default_database_path())
+    app.state.config_store.activate_file_values()
+    app.state.run_store = RunStore(resolved_database)
     app.state.csrf_token = csrf_token or secrets.token_urlsafe(32)
     app.state.frontend_root = Path(frontend_root or _frontend_root()).resolve()
+    app.state.artifacts_root = Path(
+        artifacts_root or _default_artifacts_root(resolved_database)
+    ).resolve()
+    app.state.run_manager = RunManager(
+        app.state.run_store,
+        app.state.config_store,
+        runner_factory=runner_factory,
+    )
+    app.state.start_run_manager = start_run_manager
 
     @app.middleware("http")
     async def protect_local_service(request: Request, call_next):
@@ -149,6 +227,139 @@ def create_web_app(
         result = _config_payload(request.app)
         result["message"] = "配置已安全保存。新启动的分析任务会读取这些设置。"
         return result
+
+    def parse_analysis_request(payload: AnalysisRunRequest) -> AnalysisRequest:
+        try:
+            return payload.to_runtime_request()
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    def run_payload(run: dict[str, Any]) -> dict[str, Any]:
+        result = dict(run)
+        result["queue_position"] = app.state.run_store.queue_position(run["run_id"])
+        return result
+
+    @app.post("/api/preflight")
+    async def preflight(payload: AnalysisRunRequest, request: Request):
+        _require_mutation_security(request)
+        runtime_request = parse_analysis_request(payload)
+        config = build_runtime_config()
+        return preflight_analysis(runtime_request, config, request.app.state.config_store)
+
+    @app.post("/api/runs", status_code=201)
+    async def create_run(payload: AnalysisRunRequest, request: Request):
+        _require_mutation_security(request)
+        runtime_request = parse_analysis_request(payload)
+        config = build_runtime_config()
+        check = preflight_analysis(runtime_request, config, request.app.state.config_store)
+        if not check["ok"]:
+            raise HTTPException(status_code=422, detail="；".join(check["errors"]))
+        run_id = str(uuid4())
+        artifact_root = request.app.state.artifacts_root / run_id
+        run = request.app.state.run_store.create_run(
+            run_id,
+            request=runtime_request.to_dict(),
+            config=sanitize_runtime_config(config),
+            artifact_root=artifact_root,
+        )
+        request.app.state.run_store.append_event(
+            run_id,
+            "run.queued",
+            {"status": "queued", "warnings": check["warnings"]},
+        )
+        request.app.state.run_manager.wake()
+        return run_payload(run)
+
+    @app.get("/api/runs")
+    async def list_runs(limit: int = 50, offset: int = 0):
+        return {
+            "items": [
+                run_payload(run)
+                for run in app.state.run_store.list_runs(limit=limit, offset=offset)
+            ]
+        }
+
+    @app.get("/api/runs/{run_id}")
+    async def get_run(run_id: str):
+        try:
+            return run_payload(app.state.run_store.get_run(run_id))
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="任务不存在。") from exc
+
+    @app.post("/api/runs/{run_id}/cancel")
+    async def cancel_run(run_id: str, request: Request):
+        _require_mutation_security(request)
+        try:
+            run = request.app.state.run_store.request_cancel(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="任务不存在。") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        event_type = "run.cancelled" if run["status"] == "cancelled" else "run.cancel_requested"
+        request.app.state.run_store.append_event(run_id, event_type, {"status": run["status"]})
+        request.app.state.run_manager.wake()
+        return run_payload(run)
+
+    @app.post("/api/runs/{run_id}/resume")
+    async def resume_run(run_id: str, request: Request):
+        _require_mutation_security(request)
+        try:
+            run = request.app.state.run_store.resume_run(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="任务不存在。") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        request.app.state.run_store.append_event(
+            run_id,
+            "run.resumed",
+            {"status": "queued", "attempt": run["attempt"]},
+        )
+        request.app.state.run_manager.wake()
+        return run_payload(run)
+
+    @app.get("/api/runs/{run_id}/events")
+    async def stream_events(
+        run_id: str,
+        request: Request,
+        after: int = 0,
+        follow: bool = True,
+    ):
+        try:
+            app.state.run_store.get_run(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="任务不存在。") from exc
+        header_id = request.headers.get("last-event-id", "")
+        try:
+            cursor = max(after, int(header_id or 0))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Last-Event-ID 无效。") from exc
+
+        async def generate():
+            nonlocal cursor
+            last_heartbeat = time.monotonic()
+            while True:
+                if await request.is_disconnected():
+                    return
+                events = app.state.run_store.list_events(run_id, after_event_id=cursor)
+                for event in events:
+                    cursor = int(event["event_id"])
+                    data = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+                    yield f"id: {cursor}\nevent: {event['event_type']}\ndata: {data}\n\n"
+                if not follow:
+                    return
+                run = app.state.run_store.get_run(run_id)
+                if run["status"] in TERMINAL_STATUSES and not events:
+                    return
+                if time.monotonic() - last_heartbeat >= 15:
+                    last_heartbeat = time.monotonic()
+                    yield ": heartbeat\n\n"
+                await asyncio.sleep(0.25)
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={"X-Accel-Buffering": "no"},
+        )
 
     @app.api_route("/{path:path}", methods=["GET"], include_in_schema=False)
     async def serve_frontend(path: str):

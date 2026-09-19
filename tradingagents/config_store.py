@@ -251,6 +251,12 @@ class ConfigStore:
             raise ConfigValidationError(f"不支持的配置项：{name}")
         return os.environ.get(name, self._file_values().get(name, ""))
 
+    def activate_file_values(self) -> None:
+        """把配置文件值注入当前进程，同时保留外部环境变量优先级。"""
+        for name, value in self._file_values().items():
+            if name in FIELD_BY_NAME:
+                os.environ.setdefault(name, value)
+
     def public_snapshot(self) -> dict:
         """生成不包含任何完整密钥的前端配置模型。"""
         file_values = self._file_values()

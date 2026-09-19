@@ -168,6 +168,111 @@ class RunStore:
                 raise KeyError(run_id)
         return self.get_run(run_id)
 
+    def claim_next_queued(self) -> dict[str, Any] | None:
+        """原子领取创建时间最早的排队任务。"""
+        now = _utc_now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT run_id FROM runs
+                WHERE status = 'queued'
+                ORDER BY created_at ASC, run_id ASC
+                LIMIT 1
+                """
+            ).fetchone()
+            if row is None:
+                return None
+            run_id = str(row["run_id"])
+            connection.execute(
+                """
+                UPDATE runs
+                SET status = 'preflight', stage = 'preflight', started_at = ?,
+                    finished_at = NULL, error = NULL, updated_at = ?
+                WHERE run_id = ? AND status = 'queued'
+                """,
+                (now, now, run_id),
+            )
+        return self.get_run(run_id)
+
+    def request_cancel(self, run_id: str) -> dict[str, Any]:
+        """取消排队任务，或请求运行中的任务在节点边界停止。"""
+        now = _utc_now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT status FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(run_id)
+            status = str(row["status"])
+            if status == "queued":
+                connection.execute(
+                    """
+                    UPDATE runs SET status = 'cancelled', stage = 'cancelled',
+                        finished_at = ?, updated_at = ? WHERE run_id = ?
+                    """,
+                    (now, now, run_id),
+                )
+            elif status in {"preflight", "evidence", "running"}:
+                connection.execute(
+                    """
+                    UPDATE runs SET status = 'cancel_requested', updated_at = ?
+                    WHERE run_id = ?
+                    """,
+                    (now, run_id),
+                )
+            elif status != "cancel_requested":
+                raise ValueError(f"状态为 {status} 的任务不能取消。")
+        return self.get_run(run_id)
+
+    def resume_run(self, run_id: str) -> dict[str, Any]:
+        """把有 checkpoint 的失败、中断或取消任务重新放回队列。"""
+        now = _utc_now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT status, checkpoint_available, attempt FROM runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(run_id)
+            status = str(row["status"])
+            if status not in {"failed", "interrupted", "cancelled"}:
+                raise ValueError(f"状态为 {status} 的任务不能恢复。")
+            if not bool(row["checkpoint_available"]):
+                raise ValueError("任务没有可用 checkpoint，无法恢复。")
+            connection.execute(
+                """
+                UPDATE runs
+                SET status = 'queued', stage = 'queued', attempt = ?, error = NULL,
+                    started_at = NULL, finished_at = NULL, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (int(row["attempt"]) + 1, now, run_id),
+            )
+        return self.get_run(run_id)
+
+    def queue_position(self, run_id: str) -> int | None:
+        """返回排队任务的一基位置；非排队任务返回 ``None``。"""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT status, created_at FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(run_id)
+            if row["status"] != "queued":
+                return None
+            count = connection.execute(
+                """
+                SELECT COUNT(*) FROM runs
+                WHERE status = 'queued'
+                  AND (created_at < ? OR (created_at = ? AND run_id <= ?))
+                """,
+                (row["created_at"], row["created_at"], run_id),
+            ).fetchone()[0]
+        return int(count)
+
     def mark_active_runs_interrupted(self) -> int:
         """服务重启时把无法继续执行的进程内任务标记为中断。"""
         active = ("preflight", "evidence", "running", "cancel_requested")
