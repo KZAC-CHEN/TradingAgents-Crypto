@@ -37,6 +37,8 @@ def _classify(relative_path: Path) -> tuple[str, str]:
     name = relative_path.stem.replace("_", " ")
     if relative_path.as_posix() == "reports/complete_report.md":
         return "final_report", "完整报告"
+    if relative_path.as_posix() == "reports/5_portfolio/decision.md":
+        return "decision_summary", "最终投资建议"
     if parts and parts[0] == "partial_reports":
         return "partial_report", f"部分报告 · {name}"
     if parts and parts[0] == "reports":

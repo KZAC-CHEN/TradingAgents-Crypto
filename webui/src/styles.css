@@ -343,6 +343,17 @@ button { color: inherit; }
 .report-tabs button b { min-width: 19px; padding: 2px 5px; border-radius: 99px; background: var(--surface-soft); font-size: 8px; text-align: center; }
 .report-tabs button.active { color: white; background: var(--accent); }
 .report-tabs button.active b { color: var(--accent); background: white; }
+.decision-overview { display: grid; grid-template-columns: 150px minmax(0, 1fr) 180px; gap: 20px; align-items: center; padding: 20px 22px; border-color: color-mix(in srgb, var(--accent) 24%, var(--border)); }
+.decision-overview.decision-degraded { border-color: color-mix(in srgb, var(--warning) 32%, var(--border)); }
+.decision-overview h2 { margin: 1px 0 5px; font-size: 17px; }
+.decision-overview p:last-child { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.decision-signal, .decision-health { display: flex; flex-direction: column; }
+.decision-signal { padding: 14px 16px; border-radius: 10px; color: white; background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 68%, #8b5cf6)); }
+.decision-signal span, .decision-health span { font-size: 8px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.decision-signal strong { margin-top: 4px; font-size: 23px; letter-spacing: -.03em; }
+.decision-health { align-items: flex-end; color: var(--muted); text-align: right; }
+.decision-health strong { margin-top: 3px; color: var(--text); font-size: 15px; }
+.decision-health small { margin-top: 4px; color: var(--warning); font-size: 8px; }
 .report-layout { display: grid; grid-template-columns: 265px minmax(0, 1fr); gap: 14px; align-items: start; }
 .artifact-index { position: sticky; top: 84px; overflow: hidden; }
 .artifact-index-head { display: flex; justify-content: space-between; align-items: center; padding: 15px 16px; border-bottom: 1px solid var(--border); }
@@ -391,11 +402,14 @@ button { color: inherit; }
 .evidence-summary section h3 { margin: 0 0 10px; font-size: 12px; }
 .coverage-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .coverage-list > div { display: flex; align-items: center; gap: 8px; padding: 10px; color: var(--success); border: 1px solid var(--border); border-radius: 8px; }
+.coverage-list > div.coverage-error { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 25%, var(--border)); background: color-mix(in srgb, var(--danger) 5%, transparent); }
 .coverage-list span { display: flex; flex-direction: column; }
 .coverage-list strong { color: var(--text); font-size: 9px; }
 .coverage-list small { color: var(--muted); font-size: 7px; }
 .provider-pills { display: flex; flex-wrap: wrap; gap: 6px; }
-.provider-pills span { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); background: var(--surface-soft); font-family: ui-monospace, monospace; font-size: 8px; }
+.provider-pills span { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); background: var(--surface-soft); font-family: ui-monospace, monospace; font-size: 8px; }
+.provider-pills span small { color: var(--faint); font-size: 7px; }
+.provider-pills span.provider-error, .provider-pills span.provider-degraded { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 25%, var(--border)); }
 .provider-pills em { color: var(--muted); font-size: 10px; }
 .evidence-warnings { padding: 14px; border: 1px solid color-mix(in srgb, var(--warning) 22%, var(--border)); border-radius: 9px; background: color-mix(in srgb, var(--warning) 6%, var(--surface)); }
 .evidence-warnings p { display: flex; gap: 7px; margin: 6px 0; color: var(--warning); font-size: 9px; }
@@ -447,6 +461,8 @@ button { color: inherit; }
   .progress-card { grid-column: span 2; }
   .run-content-grid { grid-template-columns: 1fr; }
   .report-layout { grid-template-columns: 1fr; }
+  .decision-overview { grid-template-columns: 130px minmax(0, 1fr); }
+  .decision-health { grid-column: 1 / -1; align-items: flex-start; text-align: left; }
   .artifact-index { position: static; }
 }
 
@@ -461,6 +477,8 @@ button { color: inherit; }
   .report-tabs { width: 100%; overflow-x: auto; }
   .report-tabs button { flex: 1 0 120px; }
   .artifact-viewer > header { flex-direction: column; }
+  .decision-overview { grid-template-columns: 1fr; }
+  .decision-health { grid-column: auto; }
   .coverage-list { grid-template-columns: 1fr; }
 }
 

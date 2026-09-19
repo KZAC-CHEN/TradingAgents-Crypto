@@ -21,6 +21,10 @@ def _prepare_run(tmp_path: Path):
     (root / "reports" / "1_analysts" / "market.md").write_text(
         "# 市场报告", encoding="utf-8"
     )
+    (root / "reports" / "5_portfolio").mkdir(parents=True)
+    (root / "reports" / "5_portfolio" / "decision.md").write_text(
+        "# 最终投资建议", encoding="utf-8"
+    )
     evidence = root / "BTCUSDT" / "2026-09-19" / "crypto_evidence"
     evidence.mkdir(parents=True)
     (evidence / "manifest.json").write_text(
@@ -52,7 +56,7 @@ def test_artifact_index_records_reports_evidence_logs_and_sha256(tmp_path):
     artifacts = index_run_artifacts(store, run)
 
     kinds = {artifact["kind"] for artifact in artifacts}
-    assert {"final_report", "report", "evidence_manifest", "run_log"} <= kinds
+    assert {"decision_summary", "final_report", "report", "evidence_manifest", "run_log"} <= kinds
     complete = next(item for item in artifacts if item["kind"] == "final_report")
     expected = hashlib.sha256((root / "reports" / "complete_report.md").read_bytes()).hexdigest()
     assert complete["sha256"] == expected

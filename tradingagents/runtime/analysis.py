@@ -241,8 +241,14 @@ class AnalysisRunner:
         final_state: dict[str, Any] = {}
         for chunk in trace:
             final_state.update(chunk)
-        report_path = write_report_tree(final_state, request.symbol, reports_dir)
         signal = _extract_signal(graph, final_state)
+        report_path = write_report_tree(
+            final_state,
+            request.symbol,
+            reports_dir,
+            signal=signal,
+            evidence_health=evidence_health,
+        )
         emit(
             "run.completed",
             {

@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from tradingagents.dataflows.crypto_evidence import summarize_crypto_evidence
+
 
 def _utc_now() -> str:
     """返回稳定的 UTC ISO 时间。"""
@@ -102,6 +104,70 @@ class RunStore:
                 connection.execute(
                     "ALTER TABLE artifacts ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''"
                 )
+            self._backfill_run_signals(connection)
+            self._backfill_evidence_health(connection)
+
+    @staticmethod
+    def _backfill_run_signals(connection: sqlite3.Connection) -> None:
+        """从历史完成事件恢复旧数据库中尚未持久化的最终信号。"""
+        rows = connection.execute(
+            """
+            SELECT run_id, payload_json FROM run_events
+            WHERE event_type IN ('run.degraded', 'run.succeeded', 'run.completed')
+            ORDER BY event_id DESC
+            """
+        ).fetchall()
+        restored: set[str] = set()
+        for row in rows:
+            run_id = str(row["run_id"])
+            if run_id in restored:
+                continue
+            try:
+                signal = json.loads(row["payload_json"]).get("signal")
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not signal:
+                continue
+            connection.execute(
+                "UPDATE runs SET signal = COALESCE(signal, ?) WHERE run_id = ?",
+                (str(signal), run_id),
+            )
+            restored.add(run_id)
+
+    @staticmethod
+    def _backfill_evidence_health(connection: sqlite3.Connection) -> None:
+        """从历史加密证据清单恢复健康状态，并纠正旧的成功状态。"""
+        rows = connection.execute(
+            """
+            SELECT run_id, status, artifact_root FROM runs
+            WHERE status IN ('succeeded', 'degraded')
+              AND evidence_health_json = '{}'
+            """
+        ).fetchall()
+        for row in rows:
+            root = Path(str(row["artifact_root"])).resolve()
+            manifests = sorted(root.glob("*/[0-9][0-9][0-9][0-9]-*/crypto_evidence/manifest.json"))
+            if not manifests:
+                continue
+            try:
+                manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                continue
+            health = summarize_crypto_evidence(manifest)
+            status = "degraded" if health["state"] == "degraded" else str(row["status"])
+            connection.execute(
+                """
+                UPDATE runs
+                SET status = ?, stage = ?, evidence_health_json = ?
+                WHERE run_id = ?
+                """,
+                (
+                    status,
+                    status,
+                    json.dumps(health, ensure_ascii=False, separators=(",", ":")),
+                    str(row["run_id"]),
+                ),
+            )
 
     def create_run(
         self,

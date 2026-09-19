@@ -31,4 +31,23 @@ describe("报告安全渲染", () => {
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer nofollow");
   });
+
+  it("正确显示证据分区错误和结构化来源", () => {
+    const manifestArtifact: Artifact = {
+      ...artifact,
+      kind: "evidence_manifest",
+      media_type: "application/json",
+      label: "统一加密证据清单",
+    };
+    render(<ArtifactContent artifact={manifestArtifact} content={JSON.stringify({
+      sections: { market: { state: "error" }, news: { state: "ok" } },
+      providers: [{ provider: "Binance", state: "error", detail: "HTTP 451" }],
+      warnings: ["合约接口不可用"],
+    })} />);
+
+    expect(screen.getByText("失败")).toBeInTheDocument();
+    expect(screen.getByText("Binance")).toBeInTheDocument();
+    expect(screen.queryByText("[object Object]")).not.toBeInTheDocument();
+    expect(screen.getByText("合约接口不可用")).toBeInTheDocument();
+  });
 });

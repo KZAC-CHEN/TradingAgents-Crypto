@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from tradingagents.web.run_store import RunStore
@@ -79,3 +81,53 @@ def test_run_store_persists_signal_and_evidence_health(tmp_path):
 
     assert updated["signal"] == "HOLD"
     assert updated["evidence_health"]["failed_sections"] == ["market"]
+
+
+@pytest.mark.unit
+def test_run_store_backfills_signal_from_historical_events(tmp_path):
+    database = tmp_path / "runs.db"
+    store = RunStore(database)
+    store.create_run("run-1", request={}, config={}, artifact_root=tmp_path / "run-1")
+    store.append_event("run-1", "run.succeeded", {"signal": "HOLD"})
+    assert store.get_run("run-1")["signal"] is None
+
+    reopened = RunStore(database)
+
+    assert reopened.get_run("run-1")["signal"] == "HOLD"
+
+
+@pytest.mark.unit
+def test_run_store_backfills_degraded_historical_evidence(tmp_path):
+    database = tmp_path / "runs.db"
+    root = tmp_path / "runs" / "run-1"
+    evidence = root / "BTCUSDT" / "2026-09-19" / "crypto_evidence"
+    evidence.mkdir(parents=True)
+    (evidence / "manifest.json").write_text(
+        json.dumps(
+            {
+                "sections": {"market": {"state": "error"}, "news": {"state": "ok"}},
+                "providers": [
+                    {"section": "market", "provider": "Binance", "state": "error"}
+                ],
+                "warnings": ["市场快照不可用"],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    store = RunStore(database)
+    store.create_run(
+        "run-1",
+        request={"symbol": "BTC-USDT"},
+        config={},
+        artifact_root=root,
+        status="succeeded",
+        stage="succeeded",
+    )
+
+    reopened = RunStore(database)
+    migrated = reopened.get_run("run-1")
+
+    assert migrated["status"] == "degraded"
+    assert migrated["stage"] == "degraded"
+    assert migrated["evidence_health"]["failed_sections"] == ["market"]

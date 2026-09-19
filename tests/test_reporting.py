@@ -27,10 +27,36 @@ def test_write_report_tree_creates_files(tmp_path):
     assert (tmp_path / "1_analysts" / "news.md").read_text() == "NEWS"
     assert (tmp_path / "2_research" / "manager.md").read_text() == "RM PLAN"
     assert (tmp_path / "3_trading" / "trader.md").read_text() == "TRADE"
-    assert (tmp_path / "5_portfolio" / "decision.md").read_text() == "PM DECISION"
-    complete = out.read_text()
+    decision = (tmp_path / "5_portfolio" / "decision.md").read_text(encoding="utf-8")
+    assert "最终投资建议" in decision
+    assert "PM DECISION" in decision
+    complete = out.read_text(encoding="utf-8")
     assert "Trading Analysis Report: AAPL" in complete
+    assert "执行摘要" in complete
+    assert complete.index("执行摘要") < complete.index("Analyst Team Reports")
     assert "MKT" in complete and "PM DECISION" in complete
+
+
+@pytest.mark.unit
+def test_write_report_tree_surfaces_signal_and_evidence_health(tmp_path):
+    out = write_report_tree(
+        _state(),
+        "BTC-USDT",
+        tmp_path,
+        signal="HOLD",
+        evidence_health={
+            "state": "degraded",
+            "failed_sections": ["market"],
+            "provider_issues": [{"provider": "Binance", "state": "error"}],
+        },
+    )
+
+    decision = (tmp_path / "5_portfolio" / "decision.md").read_text(encoding="utf-8")
+    assert "最终信号：HOLD" in decision
+    assert "证据状态：降级" in decision
+    assert "失败分区：market" in decision
+    assert "异常来源：Binance" in decision
+    assert out.read_text(encoding="utf-8").count("最终信号：HOLD") == 1
 
 
 @pytest.mark.unit

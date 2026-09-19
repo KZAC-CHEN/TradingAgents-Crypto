@@ -134,6 +134,7 @@ export interface Artifact {
   artifact_id: string;
   run_id: string;
   kind:
+    | "decision_summary"
     | "final_report"
     | "report"
     | "partial_report"
