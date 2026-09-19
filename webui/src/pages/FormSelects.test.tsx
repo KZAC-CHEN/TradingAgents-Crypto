@@ -124,6 +124,25 @@ describe("Mantine 表单接入", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/config")) return jsonResponse(config);
+      if (url.includes("/api/instruments/crypto")) {
+        return jsonResponse({
+          items: [
+            {
+              symbol: "BTC-USDT",
+              exchangeSymbol: "BTCUSDT",
+              baseAsset: "BTC",
+              quoteAsset: "USDT",
+              nameZh: "比特币",
+              nameEn: "Bitcoin",
+              aliases: ["XBT"],
+              featured: true,
+            },
+          ],
+          source: "binance",
+          warning: null,
+          fetchedAt: "2026-09-19T00:00:00Z",
+        });
+      }
       if (url.endsWith("/api/models/discover")) {
         return jsonResponse({
           provider: "deepseek",
@@ -175,12 +194,54 @@ describe("Mantine 表单接入", () => {
 
     expect(await screen.findByText("任务已创建")).toBeInTheDocument();
     expect(requests[0]).toMatchObject({
+      symbol: "BTC-USDT",
       research_depth: 2,
       llm_provider: "deepseek",
       quick_model: "proxy-fast-model",
       deep_model: "deepseek-reasoner",
     });
     expect(typeof requests[0].research_depth).toBe("number");
+  });
+
+  it("支持切换美股并把高级币种输入标准化", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/config")) return jsonResponse(config);
+      if (url.includes("/api/instruments/crypto")) {
+        return jsonResponse({
+          items: [],
+          source: "fallback",
+          warning: "offline",
+          fetchedAt: "2026-09-19T00:00:00Z",
+        });
+      }
+      return jsonResponse({
+        provider: "deepseek",
+        models: [],
+        source: "catalog",
+        warning: null,
+        fetchedAt: "2026-09-19T00:00:00Z",
+      });
+    }));
+
+    renderWithClient(<MemoryRouter><NewRunPage /></MemoryRouter>);
+    expect(await screen.findByRole("combobox", { name: "加密币种" })).toHaveValue("BTC/USDT");
+
+    await user.click(screen.getByText("美股"));
+    const stock = screen.getByPlaceholderText("AAPL");
+    await user.clear(stock);
+    await user.type(stock, "nvda");
+    await user.click(screen.getByText("加密资产"));
+    await user.click(screen.getByRole("button", { name: "高级手工输入" }));
+    const crypto = screen.getByPlaceholderText("SUI、SUIUSDT 或 SUI-USDT");
+    await user.clear(crypto);
+    await user.type(crypto, "sui");
+    await user.tab();
+
+    expect(crypto).toHaveValue("SUI-USDT");
+    await user.click(screen.getByText("美股"));
+    expect(screen.getByPlaceholderText("AAPL")).toHaveValue("NVDA");
   });
 
   it("设置页选择新供应商后显示待保存状态", async () => {

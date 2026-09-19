@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { detectAssetType, normalizeSymbol } from "./format";
+import { detectAssetType, normalizeCryptoSymbol, normalizeSymbol } from "./format";
 
 describe("标的识别", () => {
+  it("把基础币和稳定币交易对统一为 USDT 交易对", () => {
+    expect(normalizeCryptoSymbol("sui")).toBe("SUI-USDT");
+    expect(normalizeCryptoSymbol("suiusdt")).toBe("SUI-USDT");
+    expect(normalizeCryptoSymbol("SUI-USD")).toBe("SUI-USDT");
+  });
+
   it("规范化主流加密标的", () => {
     expect(normalizeSymbol("btc")).toBe("BTC-USD");
     expect(normalizeSymbol("eth/usdt")).toBe("ETH-USDT");

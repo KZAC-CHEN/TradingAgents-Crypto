@@ -29,6 +29,15 @@ export function normalizeSymbol(value: string): string {
   return symbol;
 }
 
+export function normalizeCryptoSymbol(value: string): string {
+  const compact = value.trim().toUpperCase().replaceAll("-", "").replaceAll("/", "").replaceAll("_", "");
+  if (!compact) return "";
+  const quotes = ["USDT", "USDC", "BUSD", "USD"];
+  const quote = quotes.find((candidate) => compact.endsWith(candidate) && compact.length > candidate.length);
+  const base = quote ? compact.slice(0, -quote.length) : compact;
+  return /^[A-Z0-9]{2,20}$/.test(base) ? `${base}-USDT` : value.trim().toUpperCase();
+}
+
 export function detectAssetType(value: string): "crypto" | "stock" {
   const symbol = normalizeSymbol(value);
   return symbol.endsWith("-USD") || symbol.endsWith("-USDT") ? "crypto" : "stock";

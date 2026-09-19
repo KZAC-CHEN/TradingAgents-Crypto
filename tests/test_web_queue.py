@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from tradingagents.config_store import ConfigStore
 from tradingagents.runtime import AnalysisCancelled, AnalysisEvent, AnalysisRequest
 from tradingagents.web.app import create_web_app
+from tradingagents.web.crypto_catalog import CryptoAssetCatalog
 from tradingagents.web.run_manager import RunManager
 from tradingagents.web.run_store import RunStore
 
@@ -251,6 +252,19 @@ def test_queued_cancel_and_sse_resume_from_last_event_id(tmp_path, monkeypatch):
         csrf_token="test-token",
         allowed_hosts={"testserver"},
         start_run_manager=False,
+        crypto_catalog=CryptoAssetCatalog(
+            fetcher=lambda: {
+                "symbols": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "baseAsset": "BTC",
+                        "quoteAsset": "USDT",
+                        "status": "TRADING",
+                        "isSpotTradingAllowed": True,
+                    }
+                ]
+            }
+        ),
     )
     payload = {
         "symbol": "BTC-USD",

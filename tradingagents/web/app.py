@@ -24,6 +24,7 @@ from tradingagents.config_store import ConfigStore, ConfigValidationError
 from tradingagents.runtime import AnalysisRequest, AnalysisRunner, sanitize_runtime_config
 
 from .artifacts import index_run_artifacts, resolve_artifact_path
+from .crypto_catalog import CryptoAssetCatalog
 from .model_discovery import ModelDiscoveryService
 from .run_manager import (
     TERMINAL_STATUSES,
@@ -140,6 +141,7 @@ def create_web_app(
     artifacts_root: str | Path | None = None,
     runner_factory: Any = AnalysisRunner,
     start_run_manager: bool = True,
+    crypto_catalog: CryptoAssetCatalog | None = None,
 ) -> FastAPI:
     """创建只为本机单用户设计的 Web 应用。"""
     allowed = set(allowed_hosts or _LOOPBACK_HOSTS)
@@ -183,10 +185,12 @@ def create_web_app(
         artifacts_root or _default_artifacts_root(resolved_database)
     ).resolve()
     app.state.model_discovery = ModelDiscoveryService(app.state.config_store)
+    app.state.crypto_catalog = crypto_catalog or CryptoAssetCatalog()
     app.state.run_manager = RunManager(
         app.state.run_store,
         app.state.config_store,
         runner_factory=runner_factory,
+        crypto_catalog=app.state.crypto_catalog,
     )
     app.state.start_run_manager = start_run_manager
 
@@ -252,6 +256,11 @@ def create_web_app(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    @app.get("/api/instruments/crypto")
+    async def discover_crypto_assets(refresh: bool = False):
+        """返回可搜索的币安 USDT 现货币种目录。"""
+        return await asyncio.to_thread(app.state.crypto_catalog.discover, refresh=refresh)
+
     def parse_analysis_request(payload: AnalysisRunRequest) -> AnalysisRequest:
         try:
             return payload.to_runtime_request()
@@ -268,14 +277,24 @@ def create_web_app(
         _require_mutation_security(request)
         runtime_request = parse_analysis_request(payload)
         config = build_runtime_config()
-        return preflight_analysis(runtime_request, config, request.app.state.config_store)
+        return preflight_analysis(
+            runtime_request,
+            config,
+            request.app.state.config_store,
+            request.app.state.crypto_catalog,
+        )
 
     @app.post("/api/runs", status_code=201)
     async def create_run(payload: AnalysisRunRequest, request: Request):
         _require_mutation_security(request)
         runtime_request = parse_analysis_request(payload)
         config = build_runtime_config()
-        check = preflight_analysis(runtime_request, config, request.app.state.config_store)
+        check = preflight_analysis(
+            runtime_request,
+            config,
+            request.app.state.config_store,
+            request.app.state.crypto_catalog,
+        )
         if not check["ok"]:
             raise HTTPException(status_code=422, detail="；".join(check["errors"]))
         run_id = str(uuid4())

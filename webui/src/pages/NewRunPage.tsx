@@ -1,15 +1,17 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import { SegmentedControl } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BrainCircuit, Check, ChevronRight, CircleAlert, Coins, Database, Landmark, LoaderCircle } from "lucide-react";
+import { BrainCircuit, Check, ChevronRight, CircleAlert, Coins, Database, Landmark, LoaderCircle, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 
 import { api } from "../api";
+import { CryptoAssetCombobox } from "../components/CryptoAssetCombobox";
 import { ModelCombobox } from "../components/ModelCombobox";
 import { UiSelect } from "../components/UiSelect";
-import { detectAssetType, localIsoDate, normalizeSymbol } from "../lib/format";
+import { localIsoDate, normalizeCryptoSymbol, normalizeSymbol } from "../lib/format";
 import type { AnalysisRunInput, ConfigField, PreflightResult } from "../types";
 
 const ANALYSTS = [
@@ -54,6 +56,11 @@ export function NewRunPage() {
   const queryClient = useQueryClient();
   const configQuery = useQuery({ queryKey: ["config"], queryFn: api.getConfig });
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
+  const [marketType, setMarketType] = useState<"crypto" | "stock">("crypto");
+  const [cryptoSelection, setCryptoSelection] = useState("BTC-USDT");
+  const [stockSymbol, setStockSymbol] = useState("AAPL");
+  const [customCrypto, setCustomCrypto] = useState("");
+  const [advancedCrypto, setAdvancedCrypto] = useState(false);
   const fields = useMemo(
     () => configQuery.data?.groups.flatMap((group) => group.fields) ?? [],
     [configQuery.data],
@@ -61,7 +68,7 @@ export function NewRunPage() {
   const form = useForm<AnalysisFormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      symbol: "BTC-USD",
+      symbol: "BTC-USDT",
       analysis_date: localIsoDate(),
       analysts: ANALYSTS.map((item) => item.value),
       research_depth: 1,
@@ -85,7 +92,7 @@ export function NewRunPage() {
   }, [configQuery.data, fields, form]);
 
   const symbol = form.watch("symbol");
-  const assetType = detectAssetType(symbol);
+  const assetType = marketType;
   const providerField = fieldByName(fields, "TRADINGAGENTS_LLM_PROVIDER");
   const selectedProvider = form.watch("llm_provider") || providerField?.value || "";
   const modelQuery = useQuery({
@@ -95,6 +102,20 @@ export function NewRunPage() {
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
+  const cryptoCatalogQuery = useQuery({
+    queryKey: ["crypto-assets"],
+    queryFn: () => api.discoverCryptoAssets(false),
+    staleTime: 15 * 60 * 1000,
+    retry: 1,
+  });
+  const refreshCryptoCatalog = useMutation({
+    mutationFn: () => api.discoverCryptoAssets(true),
+    onSuccess: (catalog) => queryClient.setQueryData(["crypto-assets"], catalog),
+  });
+  const selectedCryptoAsset = cryptoCatalogQuery.data?.items.find((asset) => asset.symbol === symbol);
+  const cryptoSummary = selectedCryptoAsset
+    ? `${selectedCryptoAsset.nameZh || selectedCryptoAsset.nameEn || selectedCryptoAsset.baseAsset} · ${selectedCryptoAsset.baseAsset}/USDT`
+    : symbol ? symbol.replace("-", "/") : "等待选择";
   const optionalWarnings = [
     ["AICOIN_ACCESS_KEY_ID", "AiCoin 中文新闻与 X 代理"],
     ["COINDESK_API_KEY", "CoinDesk Data API"],
@@ -121,13 +142,43 @@ export function NewRunPage() {
     setPreflight(null);
     createMutation.mutate({
       ...values,
-      symbol: normalizeSymbol(values.symbol),
+      symbol: marketType === "crypto" ? normalizeCryptoSymbol(values.symbol) : normalizeSymbol(values.symbol),
       llm_provider: values.llm_provider || undefined,
       quick_model: values.quick_model || undefined,
       deep_model: values.deep_model || undefined,
       output_language: values.output_language || undefined,
     });
   });
+
+  const switchMarket = (next: "crypto" | "stock") => {
+    const current = form.getValues("symbol");
+    if (marketType === "crypto") {
+      if (advancedCrypto) setCustomCrypto(current);
+      else setCryptoSelection(current);
+    } else {
+      setStockSymbol(current);
+    }
+    setMarketType(next);
+    const nextSymbol = next === "crypto"
+      ? advancedCrypto ? customCrypto : cryptoSelection
+      : stockSymbol;
+    form.setValue("symbol", nextSymbol, { shouldValidate: true });
+  };
+
+  const toggleAdvancedCrypto = () => {
+    const current = form.getValues("symbol");
+    if (advancedCrypto) {
+      setCustomCrypto(current);
+      setAdvancedCrypto(false);
+      form.setValue("symbol", cryptoSelection, { shouldValidate: true });
+      return;
+    }
+    const nextCustom = customCrypto || current;
+    setCryptoSelection(current);
+    setCustomCrypto(nextCustom);
+    setAdvancedCrypto(true);
+    form.setValue("symbol", nextCustom, { shouldValidate: true });
+  };
 
   return (
     <div className="page-stack">
@@ -138,22 +189,91 @@ export function NewRunPage() {
         <div className="form-column">
           <section className="panel form-section">
             <div className="section-number">01</div>
-            <div className="section-copy"><h2>分析对象</h2><p>支持美股代码和主流加密交易对，输入后自动识别。</p></div>
+            <div className="section-copy"><h2>分析对象</h2><p>先选择市场，再搜索要分析的币种或输入美股代码。</p></div>
             <div className="field-grid two-columns">
-              <label className="field-control field-span-two">
-                <span>标的代码</span>
-                <div className="symbol-input">
-                  {assetType === "crypto" ? <Coins size={19} /> : <Landmark size={19} />}
-                  <input
-                    {...form.register("symbol")}
-                    onBlur={(event) => form.setValue("symbol", normalizeSymbol(event.target.value), { shouldValidate: true })}
-                    placeholder="BTC-USD 或 AAPL"
-                    autoComplete="off"
+              <div className="field-control field-span-two">
+                <span>市场类型</span>
+                <SegmentedControl
+                  className="market-segmented"
+                  value={marketType}
+                  onChange={(value) => switchMarket(value as "crypto" | "stock")}
+                  data={[
+                    { value: "crypto", label: "加密资产" },
+                    { value: "stock", label: "美股" },
+                  ]}
+                  fullWidth
+                  aria-label="市场类型"
+                />
+              </div>
+              <div className="field-control field-span-two">
+                <span>{marketType === "crypto" ? advancedCrypto ? "自定义 USDT 交易对" : "加密币种" : "美股代码"}</span>
+                {marketType === "crypto" ? advancedCrypto ? (
+                  <div className="symbol-input">
+                    <Coins size={19} />
+                    <input
+                      value={symbol}
+                      onChange={(event) => {
+                        setCustomCrypto(event.target.value);
+                        form.setValue("symbol", event.target.value, { shouldValidate: true });
+                      }}
+                      onBlur={(event) => {
+                        const normalized = normalizeCryptoSymbol(event.target.value);
+                        setCustomCrypto(normalized);
+                        form.setValue("symbol", normalized, { shouldValidate: true });
+                      }}
+                      placeholder="SUI、SUIUSDT 或 SUI-USDT"
+                      autoComplete="off"
+                    />
+                    <b>高级</b>
+                  </div>
+                ) : (
+                  <CryptoAssetCombobox
+                    value={symbol}
+                    onChange={(value) => {
+                      setCryptoSelection(value);
+                      form.setValue("symbol", value, { shouldValidate: true });
+                    }}
+                    assets={cryptoCatalogQuery.data?.items}
+                    loading={cryptoCatalogQuery.isLoading}
+                    error={cryptoCatalogQuery.isError ? cryptoCatalogQuery.error.message : undefined}
                   />
-                  <b>{assetType === "crypto" ? "加密资产" : "美股"}</b>
-                </div>
+                ) : (
+                  <div className="symbol-input">
+                    <Landmark size={19} />
+                    <input
+                      value={symbol}
+                      onChange={(event) => {
+                        setStockSymbol(event.target.value);
+                        form.setValue("symbol", event.target.value, { shouldValidate: true });
+                      }}
+                      onBlur={(event) => {
+                        const normalized = normalizeSymbol(event.target.value);
+                        setStockSymbol(normalized);
+                        form.setValue("symbol", normalized, { shouldValidate: true });
+                      }}
+                      placeholder="AAPL"
+                      autoComplete="off"
+                    />
+                    <b>美股</b>
+                  </div>
+                )}
                 {form.formState.errors.symbol ? <small className="field-error">{form.formState.errors.symbol.message}</small> : null}
-              </label>
+                {marketType === "crypto" ? (
+                  <div className="crypto-selector-actions">
+                    <button type="button" onClick={toggleAdvancedCrypto}>{advancedCrypto ? "返回币种选择" : "高级手工输入"}</button>
+                    {!advancedCrypto && cryptoCatalogQuery.data ? <span>{cryptoCatalogQuery.data.items.length} 个 USDT 现货币种</span> : null}
+                  </div>
+                ) : null}
+                {marketType === "crypto" && !advancedCrypto && cryptoCatalogQuery.data?.warning ? (
+                  <div className="crypto-catalog-warning">
+                    <CircleAlert size={15} />
+                    <span>{cryptoCatalogQuery.data.warning}，当前显示{cryptoCatalogQuery.data.source === "fallback" ? "内置热门目录" : "上次成功目录"}。</span>
+                    <button type="button" disabled={refreshCryptoCatalog.isPending} onClick={() => refreshCryptoCatalog.mutate()}>
+                      <RefreshCw className={refreshCryptoCatalog.isPending ? "spin" : ""} size={13} />重新获取
+                    </button>
+                  </div>
+                ) : null}
+              </div>
               <label className="field-control"><span>分析日期</span><input type="date" max={localIsoDate()} {...form.register("analysis_date")} /></label>
               <div className="field-control">
                 <span>报告语言</span>
@@ -267,7 +387,7 @@ export function NewRunPage() {
         <aside className="analysis-summary">
           <section className="panel sticky-panel">
             <p className="eyebrow">RUN SUMMARY</p>
-            <h2>{normalizeSymbol(symbol) || "等待输入"}</h2>
+            <h2>{assetType === "crypto" ? cryptoSummary : normalizeSymbol(symbol) || "等待输入"}</h2>
             <div className="summary-row"><span>市场类型</span><strong>{assetType === "crypto" ? "加密资产" : "美股"}</strong></div>
             <div className="summary-row"><span>分析师</span><strong>{form.watch("analysts")?.length || 0} 位</strong></div>
             <div className="summary-row"><span>执行方式</span><strong>本地串行队列</strong></div>

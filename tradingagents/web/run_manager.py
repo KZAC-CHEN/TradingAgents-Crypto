@@ -22,6 +22,7 @@ from tradingagents.runtime import (
 )
 
 from .artifacts import index_run_artifacts
+from .crypto_catalog import CryptoAssetCatalog
 from .redaction import redact_value
 from .run_store import RunStore
 
@@ -44,6 +45,7 @@ def preflight_analysis(
     request: AnalysisRequest,
     config: dict[str, Any],
     config_store: ConfigStore,
+    crypto_catalog: CryptoAssetCatalog | None = None,
 ) -> dict[str, Any]:
     """检查必需模型配置，并列出可选数据源降级告警。"""
     provider = str(request.llm_provider or config.get("llm_provider") or "").lower()
@@ -64,6 +66,18 @@ def preflight_analysis(
     symbol = request.symbol.upper()
     is_crypto = symbol.endswith(("-USD", "-USDT", "/USDT"))
     if is_crypto:
+        if crypto_catalog is not None:
+            try:
+                normalized, valid, catalog_warning = crypto_catalog.validate(symbol)
+            except ValueError as exc:
+                errors.append(f"加密交易对格式无效：{exc}")
+            else:
+                if valid is False:
+                    errors.append(f"{normalized} 不是币安当前可交易的 USDT 现货交易对。")
+                if catalog_warning:
+                    warnings.append(catalog_warning)
+                if valid is None:
+                    warnings.append(f"当前无法在线验证 {normalized}，任务将按降级模式继续。")
         optional_sources = (
             ("AICOIN_ACCESS_KEY_ID", "AiCoin 未配置，将缺少中文新闻与 X 代理信息。"),
             ("COINDESK_API_KEY", "CoinDesk API 未配置，将使用许可允许的 RSS。"),
@@ -98,10 +112,12 @@ class RunManager:
         *,
         runner_factory: RunnerFactory = AnalysisRunner,
         poll_interval: float = 0.1,
+        crypto_catalog: CryptoAssetCatalog | None = None,
     ) -> None:
         self.store = store
         self.config_store = config_store
         self.runner_factory = runner_factory
+        self.crypto_catalog = crypto_catalog
         self.poll_interval = max(0.01, float(poll_interval))
         self._stop_event = threading.Event()
         self._wake_event = threading.Event()
@@ -145,7 +161,7 @@ class RunManager:
         config = dict(run["config"])
         secrets = self._secret_values()
         self._append_event(run_id, "run.claimed", {"status": "preflight"}, secrets)
-        check = preflight_analysis(request, config, self.config_store)
+        check = preflight_analysis(request, config, self.config_store, self.crypto_catalog)
         self._append_event(run_id, "run.preflight_result", check, secrets)
         if not check["ok"]:
             message = "；".join(check["errors"])

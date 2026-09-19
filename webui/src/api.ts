@@ -3,6 +3,7 @@ import type {
   AnalysisRunInput,
   Artifact,
   ConfigPayload,
+  CryptoAssetCatalogResult,
   ModelDiscoveryResult,
   PreflightResult,
 } from "./types";
@@ -58,6 +59,8 @@ export const api = {
       "/api/models/discover",
       mutationInit(csrfToken, { provider, refresh }),
     ),
+  discoverCryptoAssets: (refresh = false) =>
+    apiFetch<CryptoAssetCatalogResult>(`/api/instruments/crypto?refresh=${refresh}`),
   listRuns: () => apiFetch<{ items: AnalysisRun[] }>("/api/runs"),
   getRun: (runId: string) => apiFetch<AnalysisRun>(`/api/runs/${runId}`),
   preflight: (csrfToken: string, input: AnalysisRunInput) =>

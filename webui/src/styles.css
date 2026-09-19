@@ -179,6 +179,21 @@ button { color: inherit; }
 .model-option-content { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .model-option-content strong { overflow-wrap: anywhere; color: inherit; font-family: ui-monospace, "Cascadia Code", monospace; font-size: 11px; }
 .model-option-content span { color: var(--muted); font-size: 9px; font-weight: 500; }
+.market-segmented { padding: 4px; background: var(--surface-soft); border: 1px solid var(--border); border-radius: 9px; }
+.market-segmented [data-active] { color: white; background: var(--accent); box-shadow: var(--shadow-small); }
+.market-segmented label { color: var(--muted); font-family: inherit; font-size: 11px; font-weight: 750; }
+.market-segmented label[data-active] { color: white; }
+.ta-crypto-option { display: grid; grid-template-columns: 31px minmax(0, 1fr) auto; align-items: center; gap: 9px; }
+.crypto-option-mark { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; color: var(--accent); background: var(--accent-soft); font-size: 9px; font-weight: 850; }
+.crypto-option-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.crypto-option-copy strong { overflow: hidden; color: inherit; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.crypto-option-copy small { overflow: hidden; color: var(--muted); font-family: ui-monospace, "Cascadia Code", monospace; font-size: 8px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.ta-crypto-option em { color: var(--accent); font-size: 7px; font-style: normal; font-weight: 750; }
+.crypto-selector-actions { display: flex; justify-content: space-between; gap: 10px; color: var(--faint); font-size: 9px; }
+.crypto-selector-actions button { padding: 0; color: var(--accent); background: transparent; border: 0; font: inherit; font-weight: 700; cursor: pointer; }
+.crypto-catalog-warning { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 11px; color: var(--warning); border: 1px solid color-mix(in srgb, var(--warning) 22%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--warning) 7%, var(--surface)); font-size: 9px; line-height: 1.45; }
+.crypto-catalog-warning button { display: flex; align-items: center; gap: 4px; padding: 5px 7px; color: var(--warning); background: transparent; border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--border)); border-radius: 6px; font: inherit; font-weight: 700; cursor: pointer; }
+.crypto-catalog-warning button:disabled { opacity: .55; cursor: wait; }
 .symbol-input { position: relative; display: flex; align-items: center; }
 .symbol-input > svg { position: absolute; left: 13px; color: var(--accent); }
 .symbol-input input { padding-left: 42px; padding-right: 92px; font-weight: 750; letter-spacing: .03em; }
@@ -495,6 +510,8 @@ button { color: inherit; }
   .coverage-list { grid-template-columns: 1fr; }
   .progress-meta { flex-wrap: wrap; }
   .progress-heartbeat { order: 3; width: 100%; }
+  .crypto-catalog-warning { grid-template-columns: auto minmax(0, 1fr); }
+  .crypto-catalog-warning button { grid-column: 2; justify-self: start; }
 }
 
 @media (prefers-reduced-motion: reduce) {

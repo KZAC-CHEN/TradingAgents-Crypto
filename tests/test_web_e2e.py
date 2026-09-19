@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from tradingagents.runtime import AnalysisEvent, AnalysisResult
 from tradingagents.web.app import create_web_app
+from tradingagents.web.crypto_catalog import CryptoAssetCatalog
 
 
 def _event(run_id: str, event_type: str, payload: dict) -> AnalysisEvent:
@@ -99,6 +100,19 @@ def test_web_analysis_survives_restart_with_events_and_artifacts(tmp_path):
         "quick_model": "local-fast",
         "deep_model": "local-deep",
     }
+    crypto_catalog = CryptoAssetCatalog(
+        fetcher=lambda: {
+            "symbols": [
+                {
+                    "symbol": "BTCUSDT",
+                    "baseAsset": "BTC",
+                    "quoteAsset": "USDT",
+                    "status": "TRADING",
+                    "isSpotTradingAllowed": True,
+                }
+            ]
+        }
+    )
     app = create_web_app(
         env_path=env_path,
         database_path=database,
@@ -106,6 +120,7 @@ def test_web_analysis_survives_restart_with_events_and_artifacts(tmp_path):
         csrf_token="test-token",
         allowed_hosts={"testserver"},
         runner_factory=_EndToEndRunnerFactory(),
+        crypto_catalog=crypto_catalog,
     )
 
     with TestClient(app, base_url="http://testserver") as client:
@@ -137,6 +152,7 @@ def test_web_analysis_survives_restart_with_events_and_artifacts(tmp_path):
         csrf_token="test-token",
         allowed_hosts={"testserver"},
         start_run_manager=False,
+        crypto_catalog=crypto_catalog,
     )
     with TestClient(restarted, base_url="http://testserver") as client:
         restored = client.get(f"/api/runs/{run_id}")

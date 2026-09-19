@@ -75,6 +75,24 @@ export interface ModelDiscoveryResult {
   fetchedAt: string;
 }
 
+export interface CryptoAsset {
+  symbol: string;
+  exchangeSymbol: string;
+  baseAsset: string;
+  quoteAsset: "USDT";
+  nameZh: string | null;
+  nameEn: string | null;
+  aliases: string[];
+  featured: boolean;
+}
+
+export interface CryptoAssetCatalogResult {
+  items: CryptoAsset[];
+  source: "binance" | "cache" | "fallback";
+  warning: string | null;
+  fetchedAt: string;
+}
+
 export interface AnalysisRunInput {
   symbol: string;
   analysis_date: string;
