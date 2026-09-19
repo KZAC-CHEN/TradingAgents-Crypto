@@ -112,7 +112,7 @@ export function NewRunPage() {
     mutationFn: () => api.discoverCryptoAssets(true),
     onSuccess: (catalog) => queryClient.setQueryData(["crypto-assets"], catalog),
   });
-  const selectedCryptoAsset = cryptoCatalogQuery.data?.items.find((asset) => asset.symbol === symbol);
+  const selectedCryptoAsset = cryptoCatalogQuery.data?.items?.find((asset) => asset.symbol === symbol);
   const cryptoSummary = selectedCryptoAsset
     ? `${selectedCryptoAsset.nameZh || selectedCryptoAsset.nameEn || selectedCryptoAsset.baseAsset} · ${selectedCryptoAsset.baseAsset}/USDT`
     : symbol ? symbol.replace("-", "/") : "等待选择";
@@ -233,7 +233,7 @@ export function NewRunPage() {
                       setCryptoSelection(value);
                       form.setValue("symbol", value, { shouldValidate: true });
                     }}
-                    assets={cryptoCatalogQuery.data?.items}
+                    assets={cryptoCatalogQuery.data?.items ?? []}
                     loading={cryptoCatalogQuery.isLoading}
                     error={cryptoCatalogQuery.isError ? cryptoCatalogQuery.error.message : undefined}
                   />
@@ -261,7 +261,7 @@ export function NewRunPage() {
                 {marketType === "crypto" ? (
                   <div className="crypto-selector-actions">
                     <button type="button" onClick={toggleAdvancedCrypto}>{advancedCrypto ? "返回币种选择" : "高级手工输入"}</button>
-                    {!advancedCrypto && cryptoCatalogQuery.data ? <span>{cryptoCatalogQuery.data.items.length} 个 USDT 现货币种</span> : null}
+                    {!advancedCrypto && cryptoCatalogQuery.data?.items ? <span>{cryptoCatalogQuery.data.items.length} 个 USDT 现货币种</span> : null}
                   </div>
                 ) : null}
                 {marketType === "crypto" && !advancedCrypto && cryptoCatalogQuery.data?.warning ? (

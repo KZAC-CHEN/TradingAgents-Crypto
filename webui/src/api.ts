@@ -25,6 +25,13 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   });
+  const contentType = response.headers.get("content-type")?.toLocaleLowerCase() || "";
+  if (!contentType.includes("application/json")) {
+    throw new ApiError(
+      "Web 服务仍在运行旧版本，请停止服务后重新执行 tradingagents web。",
+      response.status,
+    );
+  }
   const data = (await response.json().catch(() => ({}))) as T & { error?: string };
   if (!response.ok) {
     throw new ApiError(data.error || `请求失败（${response.status}）`, response.status);

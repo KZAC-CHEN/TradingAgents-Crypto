@@ -244,6 +244,36 @@ describe("Mantine 表单接入", () => {
     expect(screen.getByPlaceholderText("AAPL")).toHaveValue("NVDA");
   });
 
+  it("旧后端把 API 回退为 HTML 时页面不会崩溃", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/config")) return jsonResponse(config);
+      if (url.includes("/api/instruments/crypto")) {
+        return new Response("<!doctype html><div id=\"root\"></div>", {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        });
+      }
+      return jsonResponse({
+        provider: "deepseek",
+        models: [],
+        source: "catalog",
+        warning: null,
+        fetchedAt: "2026-09-19T00:00:00Z",
+      });
+    }));
+
+    renderWithClient(<MemoryRouter><NewRunPage /></MemoryRouter>);
+
+    expect(await screen.findByRole("heading", { name: "新建分析" })).toBeInTheDocument();
+    expect(await screen.findByText(
+      "Web 服务仍在运行旧版本，请停止服务后重新执行 tradingagents web。",
+      {},
+      { timeout: 3_000 },
+    )).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "高级手工输入" })).toBeEnabled();
+  });
+
   it("设置页选择新供应商后显示待保存状态", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
