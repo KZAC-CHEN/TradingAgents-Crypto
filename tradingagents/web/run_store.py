@@ -74,6 +74,7 @@ class RunStore:
                     relative_path TEXT NOT NULL,
                     media_type TEXT NOT NULL,
                     size_bytes INTEGER NOT NULL,
+                    sha256 TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     UNIQUE(run_id, relative_path)
                 );
@@ -82,6 +83,14 @@ class RunStore:
                     ON artifacts(run_id, kind, label);
                 """
             )
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(artifacts)").fetchall()
+            }
+            if "sha256" not in columns:
+                connection.execute(
+                    "ALTER TABLE artifacts ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''"
+                )
 
     def create_run(
         self,
@@ -351,6 +360,82 @@ class RunStore:
             }
             for row in rows
         ]
+
+    def register_artifact(
+        self,
+        artifact_id: str,
+        run_id: str,
+        *,
+        kind: str,
+        label: str,
+        relative_path: str,
+        media_type: str,
+        size_bytes: int,
+        sha256: str,
+    ) -> dict[str, Any]:
+        """登记任务目录中的一个文件，并更新已存在的同路径记录。"""
+        created_at = _utc_now()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO artifacts (
+                    artifact_id, run_id, kind, label, relative_path, media_type,
+                    size_bytes, sha256, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(run_id, relative_path) DO UPDATE SET
+                    kind = excluded.kind,
+                    label = excluded.label,
+                    media_type = excluded.media_type,
+                    size_bytes = excluded.size_bytes,
+                    sha256 = excluded.sha256
+                """,
+                (
+                    artifact_id,
+                    run_id,
+                    kind,
+                    label,
+                    relative_path,
+                    media_type,
+                    max(0, int(size_bytes)),
+                    sha256,
+                    created_at,
+                ),
+            )
+        return self.get_artifact_by_path(run_id, relative_path)
+
+    def get_artifact(self, artifact_id: str) -> dict[str, Any]:
+        """按不可猜测的登记 ID 读取 artifact 元数据。"""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM artifacts WHERE artifact_id = ?", (artifact_id,)
+            ).fetchone()
+        if row is None:
+            raise KeyError(artifact_id)
+        return dict(row)
+
+    def get_artifact_by_path(self, run_id: str, relative_path: str) -> dict[str, Any]:
+        """按任务和规范相对路径读取 artifact 元数据。"""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM artifacts WHERE run_id = ? AND relative_path = ?",
+                (run_id, relative_path),
+            ).fetchone()
+        if row is None:
+            raise KeyError((run_id, relative_path))
+        return dict(row)
+
+    def list_artifacts(self, run_id: str) -> list[dict[str, Any]]:
+        """按类型与标签列出任务的全部登记文件。"""
+        self.get_run(run_id)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM artifacts WHERE run_id = ?
+                ORDER BY kind ASC, label ASC, relative_path ASC
+                """,
+                (run_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     @staticmethod
     def _decode_run(row: sqlite3.Row) -> dict[str, Any]:

@@ -98,3 +98,23 @@ export interface RunEvent {
   payload: Record<string, unknown>;
   created_at: string;
 }
+
+export interface Artifact {
+  artifact_id: string;
+  run_id: string;
+  kind:
+    | "final_report"
+    | "report"
+    | "partial_report"
+    | "evidence_manifest"
+    | "evidence_raw"
+    | "evidence_report"
+    | "run_log"
+    | "other";
+  label: string;
+  relative_path: string;
+  media_type: string;
+  size_bytes: number;
+  sha256: string;
+  created_at: string;
+}

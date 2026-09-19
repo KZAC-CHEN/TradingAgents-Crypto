@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from tradingagents.config_store import ConfigStore, ConfigValidationError
 from tradingagents.runtime import AnalysisRequest, AnalysisRunner, sanitize_runtime_config
 
+from .artifacts import index_run_artifacts, resolve_artifact_path
 from .run_manager import (
     TERMINAL_STATUSES,
     RunManager,
@@ -33,6 +34,7 @@ from .run_store import RunStore
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 _MAX_REQUEST_BYTES = 64 * 1024
+_MAX_ARTIFACT_PREVIEW_BYTES = 5 * 1024 * 1024
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -361,6 +363,45 @@ def create_web_app(
             generate(),
             media_type="text/event-stream",
             headers={"X-Accel-Buffering": "no"},
+        )
+
+    @app.get("/api/runs/{run_id}/artifacts")
+    async def list_artifacts(run_id: str):
+        try:
+            run = app.state.run_store.get_run(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="任务不存在。") from exc
+        artifacts = app.state.run_store.list_artifacts(run_id)
+        if Path(run["artifact_root"]).is_dir():
+            artifacts = index_run_artifacts(app.state.run_store, run)
+        return {"items": artifacts}
+
+    @app.get("/api/artifacts/{artifact_id}")
+    async def get_artifact(artifact_id: str):
+        try:
+            artifact = app.state.run_store.get_artifact(artifact_id)
+            path = resolve_artifact_path(app.state.run_store, artifact)
+        except (KeyError, FileNotFoundError) as exc:
+            raise HTTPException(status_code=404, detail="文件不存在或尚未登记。") from exc
+        if path.stat().st_size > _MAX_ARTIFACT_PREVIEW_BYTES:
+            raise HTTPException(status_code=413, detail="文件过大，请使用下载功能。")
+        try:
+            content = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=415, detail="该文件不能作为文本预览。") from exc
+        return {"artifact": artifact, "content": content}
+
+    @app.get("/api/artifacts/{artifact_id}/download")
+    async def download_artifact(artifact_id: str):
+        try:
+            artifact = app.state.run_store.get_artifact(artifact_id)
+            path = resolve_artifact_path(app.state.run_store, artifact)
+        except (KeyError, FileNotFoundError) as exc:
+            raise HTTPException(status_code=404, detail="文件不存在或尚未登记。") from exc
+        return FileResponse(
+            path,
+            media_type=str(artifact["media_type"]),
+            filename=path.name,
         )
 
     @app.api_route("/{path:path}", methods=["GET"], include_in_schema=False)

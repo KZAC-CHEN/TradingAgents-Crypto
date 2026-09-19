@@ -171,6 +171,7 @@ export function RunDetailPage() {
         <div className="run-header-side">
           <div className={`connection-state connection-${runtime.connection}`}><i />{runtime.connection === "live" ? "实时连接" : runtime.connection === "reconnecting" ? "正在重连" : terminal ? "事件已同步" : "正在连接"}</div>
           <StatusBadge status={run.status} />
+          {terminal ? <Link className="button button-secondary-light" to={`/runs/${run.run_id}/reports`}><FileText size={16} />浏览报告与证据</Link> : null}
           <RunActions run={run} />
         </div>
       </header>

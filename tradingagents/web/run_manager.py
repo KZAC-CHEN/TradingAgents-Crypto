@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from collections.abc import Callable
 from copy import deepcopy
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from tradingagents.config_store import FIELD_BY_NAME, ConfigStore
@@ -19,6 +21,7 @@ from tradingagents.runtime import (
     AnalysisRunner,
 )
 
+from .artifacts import index_run_artifacts
 from .redaction import redact_value
 from .run_store import RunStore
 
@@ -154,6 +157,7 @@ class RunManager:
                 finished_at=_utc_now(),
             )
             self._append_event(run_id, "run.failed", {"error": message}, secrets)
+            self._index_artifacts(run_id)
             return
 
         runner = self.runner_factory(config)
@@ -161,7 +165,7 @@ class RunManager:
         def handle_event(event: AnalysisEvent) -> None:
             payload = redact_value(event.payload, secrets=secrets)
             self._sync_stage(run_id, event.event_type, request.checkpoint_enabled)
-            self.store.append_event(run_id, event.event_type, payload)
+            self._append_event(run_id, event.event_type, payload, secrets)
 
         def should_cancel() -> bool:
             if self._stop_event.is_set():
@@ -188,6 +192,7 @@ class RunManager:
                 finished_at=_utc_now(),
             )
             self._append_event(run_id, f"run.{status}", {"status": status}, secrets)
+            self._index_artifacts(run_id)
         except Exception as exc:
             logger.exception("Web 分析任务 %s 执行失败", run_id)
             message = str(redact_value(str(exc), secrets=secrets))
@@ -201,6 +206,7 @@ class RunManager:
                 finished_at=_utc_now(),
             )
             self._append_event(run_id, "run.failed", {"error": message}, secrets)
+            self._index_artifacts(run_id)
         else:
             self.store.update_run(
                 run_id,
@@ -216,6 +222,7 @@ class RunManager:
                 {"signal": result.signal, "report_path": str(result.report_path)},
                 secrets,
             )
+            self._index_artifacts(run_id)
 
     def _sync_stage(self, run_id: str, event_type: str, checkpoint_enabled: bool) -> None:
         stage_by_event = {
@@ -255,4 +262,18 @@ class RunManager:
         secrets: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         cleaned = redact_value(payload, secrets=secrets)
-        return self.store.append_event(run_id, event_type, cleaned)
+        event = self.store.append_event(run_id, event_type, cleaned)
+        run = self.store.get_run(run_id)
+        root = Path(run["artifact_root"]).resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        with (root / "run_events.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")))
+            stream.write("\n")
+        return event
+
+    def _index_artifacts(self, run_id: str) -> None:
+        """索引任务产物；索引失败不会覆盖原始任务结果。"""
+        try:
+            index_run_artifacts(self.store, self.store.get_run(run_id))
+        except Exception:
+            logger.exception("Web 分析任务 %s 的 artifact 索引失败", run_id)

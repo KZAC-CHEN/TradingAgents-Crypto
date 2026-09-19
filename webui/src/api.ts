@@ -1,6 +1,7 @@
 import type {
   AnalysisRun,
   AnalysisRunInput,
+  Artifact,
   ConfigPayload,
   PreflightResult,
 } from "./types";
@@ -61,4 +62,8 @@ export const api = {
     apiFetch<AnalysisRun>(`/api/runs/${runId}/cancel`, mutationInit(csrfToken)),
   resumeRun: (csrfToken: string, runId: string) =>
     apiFetch<AnalysisRun>(`/api/runs/${runId}/resume`, mutationInit(csrfToken)),
+  listArtifacts: (runId: string) =>
+    apiFetch<{ items: Artifact[] }>(`/api/runs/${runId}/artifacts`),
+  getArtifact: (artifactId: string) =>
+    apiFetch<{ artifact: Artifact; content: string }>(`/api/artifacts/${artifactId}`),
 };

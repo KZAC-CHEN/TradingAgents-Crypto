@@ -1,4 +1,5 @@
 import { Route, Routes } from "react-router-dom";
+import { lazy, Suspense } from "react";
 
 import { AppShell } from "./components/AppShell";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -8,6 +9,10 @@ import { RunDetailPage } from "./pages/RunDetailPage";
 import { RunsPage } from "./pages/RunsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
+const ReportsPage = lazy(() =>
+  import("./pages/ReportsPage").then((module) => ({ default: module.ReportsPage })),
+);
+
 export function App() {
   return (
     <Routes>
@@ -16,6 +21,7 @@ export function App() {
         <Route path="runs" element={<RunsPage />} />
         <Route path="runs/new" element={<NewRunPage />} />
         <Route path="runs/:runId" element={<RunDetailPage />} />
+        <Route path="runs/:runId/reports" element={<Suspense fallback={<div className="loading-block">正在加载报告中心…</div>}><ReportsPage /></Suspense>} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
