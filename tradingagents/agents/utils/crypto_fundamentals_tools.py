@@ -9,6 +9,7 @@ from typing import Annotated
 
 from langchain_core.tools import tool
 
+from tradingagents.dataflows.crypto_evidence import load_crypto_evidence_report
 from tradingagents.dataflows.crypto_fundamentals import (
     build_crypto_fundamentals_report,
     collect_crypto_fundamentals_snapshot,
@@ -34,6 +35,14 @@ def get_crypto_fundamentals_report_text(symbol: str, curr_date: str) -> str:
         raise ValueError("加密资产代码不能为空。")
     if not analysis_date:
         raise ValueError("分析日期不能为空。")
+
+    prepared_report = load_crypto_evidence_report(
+        normalized_symbol,
+        analysis_date,
+        "fundamentals",
+    )
+    if prepared_report is not None:
+        return prepared_report
 
     cache_key = (normalized_symbol, analysis_date)
     now = time.monotonic()

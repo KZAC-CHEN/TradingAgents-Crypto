@@ -33,6 +33,7 @@ from tradingagents.agents.utils.agent_utils import (
 )
 from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.dataflows.config import set_config
+from tradingagents.dataflows.crypto_evidence import prepare_crypto_evidence_bundle
 from tradingagents.dataflows.utils import safe_ticker_component
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.llm_clients import create_llm_client
@@ -401,12 +402,31 @@ class TradingAgentsGraph:
         selection, debate/risk depth, or asset mode starts fresh instead of
         silently continuing the previous graph (#1089).
         """
-        return "|".join([
+        parts = [
             "analysts=" + ",".join(self.selected_analysts),
             f"debate={self.config['max_debate_rounds']}",
             f"risk={self.config['max_risk_discuss_rounds']}",
             f"asset={asset_type}",
-        ])
+        ]
+        if asset_type == "crypto":
+            parts.append("evidence=1")
+        return "|".join(parts)
+
+    def prepare_crypto_evidence(
+        self,
+        company_name: str,
+        trade_date: str,
+        *,
+        reuse_existing: bool,
+    ) -> dict[str, Any]:
+        """为本次加密分析准备证据包，恢复运行时只校验并复用。"""
+        return prepare_crypto_evidence_bundle(
+            company_name,
+            str(trade_date),
+            selected_analysts=self.selected_analysts,
+            results_dir=self.config["results_dir"],
+            reuse_existing=reuse_existing,
+        )
 
     def propagate(self, company_name, trade_date, asset_type: str = "stock"):
         """Run the trading agents graph for a company on a specific date.
@@ -448,22 +468,37 @@ class TradingAgentsGraph:
         graph, making the flag a no-op.
         """
         self._resuming = False
-        if not self.config.get("checkpoint_enabled"):
-            return None
-        signature = self._run_signature(asset_type)
-        self._checkpointer_ctx = get_checkpointer(self.config["data_cache_dir"], company_name)
-        saver = self._checkpointer_ctx.__enter__()
-        self.graph = self.workflow.compile(checkpointer=saver)
+        thread_id_value = None
+        if self.config.get("checkpoint_enabled"):
+            signature = self._run_signature(asset_type)
+            self._checkpointer_ctx = get_checkpointer(
+                self.config["data_cache_dir"], company_name
+            )
+            saver = self._checkpointer_ctx.__enter__()
+            self.graph = self.workflow.compile(checkpointer=saver)
 
-        step = checkpoint_step(
-            self.config["data_cache_dir"], company_name, str(trade_date), signature
-        )
-        self._resuming = step is not None
-        if step is not None:
-            logger.info("Resuming from step %d for %s on %s", step, company_name, trade_date)
-        else:
-            logger.info("Starting fresh for %s on %s", company_name, trade_date)
-        return thread_id(company_name, str(trade_date), signature)
+            step = checkpoint_step(
+                self.config["data_cache_dir"], company_name, str(trade_date), signature
+            )
+            self._resuming = step is not None
+            if step is not None:
+                logger.info("Resuming from step %d for %s on %s", step, company_name, trade_date)
+            else:
+                logger.info("Starting fresh for %s on %s", company_name, trade_date)
+            thread_id_value = thread_id(company_name, str(trade_date), signature)
+
+        if asset_type == "crypto":
+            try:
+                self.prepare_crypto_evidence(
+                    company_name,
+                    str(trade_date),
+                    reuse_existing=self._resuming,
+                )
+            except Exception:
+                if self._checkpointer_ctx is not None:
+                    self.end_checkpoint()
+                raise
+        return thread_id_value
 
     def checkpoint_input(self, init_state):
         """The value to stream/invoke: ``None`` to resume an existing checkpoint,

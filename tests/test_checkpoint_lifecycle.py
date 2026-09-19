@@ -71,6 +71,55 @@ def test_disabled_is_a_noop():
 
 
 @pytest.mark.unit
+def test_crypto_prepares_evidence_even_when_checkpoint_is_disabled():
+    with tempfile.TemporaryDirectory() as tmp:
+        g = _bare_graph(tmp, enabled=False)
+        g.config["results_dir"] = tmp
+        calls = []
+        g.prepare_crypto_evidence = lambda symbol, day, *, reuse_existing: calls.append(
+            (symbol, day, reuse_existing)
+        )
+
+        assert g.begin_checkpoint("BTC-USD", "2026-09-19", "crypto") is None
+        assert calls == [("BTC-USD", "2026-09-19", False)]
+
+
+@pytest.mark.unit
+def test_crypto_resume_reuses_the_existing_evidence_bundle():
+    global _should_crash
+    with tempfile.TemporaryDirectory() as tmp:
+        args = ("BTC", "2026-09-19", "crypto")
+        init = {"count": 0}
+        first_calls = []
+        g1 = _bare_graph(tmp)
+        g1.config["results_dir"] = tmp
+        g1.prepare_crypto_evidence = (
+            lambda symbol, day, *, reuse_existing: first_calls.append(reuse_existing)
+        )
+        tid = g1.begin_checkpoint(*args)
+        try:
+            _should_crash = True
+            with pytest.raises(RuntimeError):
+                g1.graph.invoke(init, config={"configurable": {"thread_id": tid}})
+        finally:
+            g1.end_checkpoint()
+        assert first_calls == [False]
+
+        second_calls = []
+        g2 = _bare_graph(tmp)
+        g2.config["results_dir"] = tmp
+        g2.prepare_crypto_evidence = (
+            lambda symbol, day, *, reuse_existing: second_calls.append(reuse_existing)
+        )
+        g2.begin_checkpoint(*args)
+        try:
+            assert g2._resuming is True
+            assert second_calls == [True]
+        finally:
+            g2.end_checkpoint()
+
+
+@pytest.mark.unit
 def test_begin_returns_thread_id_and_recompiles():
     with tempfile.TemporaryDirectory() as tmp:
         g = _bare_graph(tmp)

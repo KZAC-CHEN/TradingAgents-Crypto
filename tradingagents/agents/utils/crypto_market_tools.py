@@ -9,6 +9,7 @@ from langchain_core.tools import tool
 
 from tradingagents.dataflows.binance import collect_market_snapshot, normalize_binance_symbol
 from tradingagents.dataflows.binance_analysis import build_deterministic_market_report
+from tradingagents.dataflows.crypto_evidence import load_crypto_evidence_report
 
 _CACHE_TTL_SECONDS = 300.0
 _CACHE_MAX_ENTRIES = 16
@@ -28,6 +29,10 @@ def _get_or_build_report(symbol: str, curr_date: str) -> str:
     analysis_date = str(curr_date).strip()
     if not analysis_date:
         raise ValueError("分析日期不能为空。")
+
+    prepared_report = load_crypto_evidence_report(canonical, analysis_date, "market")
+    if prepared_report is not None:
+        return prepared_report
 
     cache_key = (canonical, analysis_date)
     now = time.monotonic()
