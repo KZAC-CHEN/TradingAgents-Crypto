@@ -1333,6 +1333,40 @@ def main(ctx: typer.Context) -> None:
 
 
 @app.command()
+def web(
+    port: int = typer.Option(
+        8765,
+        "--port",
+        min=1,
+        max=65535,
+        help="Local port used by the Web analysis center.",
+    ),
+    no_browser: bool = typer.Option(
+        False,
+        "--no-browser",
+        help="Start the service without opening the default browser.",
+    ),
+    env_file: str | None = typer.Option(
+        None,
+        "--env-file",
+        help="Optional .env path; defaults to the project .env file.",
+    ),
+):
+    """启动仅限本机访问的 TradingAgents Web 分析中心。"""
+    from tradingagents.web import run_web_server
+
+    try:
+        run_web_server(
+            port=port,
+            env_path=env_file,
+            open_browser=not no_browser,
+        )
+    except OSError as exc:
+        console.print(f"[red]无法启动 Web 分析中心：{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+
+@app.command()
 def configure(
     port: int = typer.Option(
         8765,
