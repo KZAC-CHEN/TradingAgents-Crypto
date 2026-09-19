@@ -85,10 +85,7 @@ def _default_artifacts_root(database_path: Path) -> Path:
 
 
 def _frontend_root() -> Path:
-    react_root = Path(str(files("tradingagents.web_ui"))) / "dist"
-    if react_root.is_dir():
-        return react_root
-    return Path(str(files("tradingagents.config_ui")))
+    return Path(str(files("tradingagents.web_ui"))) / "dist"
 
 
 def _config_payload(app: FastAPI) -> dict[str, Any]:
@@ -439,4 +436,11 @@ def run_web_server(
     print("按 Ctrl+C 停止服务。")
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
-    uvicorn.run(app, host="127.0.0.1", port=port, workers=1, log_level="info")
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=port,
+        workers=1,
+        log_level="info",
+        timeout_graceful_shutdown=5,
+    )

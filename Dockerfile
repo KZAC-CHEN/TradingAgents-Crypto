@@ -1,3 +1,12 @@
+FROM node:24-alpine AS web-builder
+
+WORKDIR /build
+COPY webui/package.json webui/package-lock.json ./webui/
+RUN cd webui && npm ci
+COPY webui ./webui
+COPY tradingagents/web_ui ./tradingagents/web_ui
+RUN cd webui && npm run build
+
 FROM python:3.12-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -8,6 +17,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /build
 COPY . .
+COPY --from=web-builder /build/tradingagents/web_ui/dist ./tradingagents/web_ui/dist
 RUN pip install --no-cache-dir .
 
 FROM python:3.12-slim

@@ -170,6 +170,50 @@ The service listens on `127.0.0.1` only. Use `--no-browser` if you want to open
 the displayed local URL yourself, or `--port 9000` to choose another local port.
 After saving, start a new analysis process so it reads the updated settings.
 
+### Web analysis center
+
+Start the complete local analysis center with one command:
+
+```bash
+tradingagents web
+# Keep the browser closed, or use a different local port:
+tradingagents web --no-browser --port 9000
+```
+
+The service binds to `127.0.0.1` with one Uvicorn worker. Open the displayed
+URL to configure model and data-source credentials, create US-stock or crypto
+analysis tasks, follow Agent/LLM/tool progress, cancel at LangGraph node
+boundaries, resume interrupted checkpointed tasks, and browse reports,
+evidence JSON, SHA-256 metadata, and sanitized run logs.
+
+Web tasks execute one at a time because the existing data configuration is
+process-global. Additional tasks stay in a persistent FIFO queue. Task state is
+stored in `~/.tradingagents/web/runs.db`; each run gets a UUID directory under
+`~/.tradingagents/web/runs/` for reports, checkpoints, evidence, and logs. A
+service restart marks the active task as interrupted while preserving queued
+tasks and completed history. Resume is available only when the interrupted,
+failed, or cancelled task has a checkpoint.
+
+Saved API keys remain in `.env` or the process environment. Run creation APIs
+never accept keys, configuration snapshots and events are redacted, and
+artifact downloads resolve only database-registered IDs inside the generated
+run directory.
+
+For frontend development, run the Python service and Vite separately:
+
+```bash
+tradingagents web --no-browser
+cd webui
+npm ci
+npm run dev
+```
+
+Vite listens on `127.0.0.1:5173` and proxies `/api` to the Python service on
+port `8765`. Use `npm run typecheck`, `npm test`, and `npm run build` before
+committing frontend changes. The production build is generated into
+`tradingagents/web_ui/dist`; edit files in `webui/src`, never the generated
+bundle directly.
+
 `ROOTDATA_API_KEY` remains optional. When it is absent, the default
 `official_sources` fallback reads registered project-maintainer release feeds
 and adds official website, documentation, governance, and RootData manual-check
@@ -282,6 +326,11 @@ config["checkpoint_enabled"] = True
 ta = TradingAgentsGraph(config=config)
 _, decision = ta.propagate("NVDA", "2026-01-15")
 ```
+
+Web runs enable checkpointing from the new-analysis form. Each Web run uses an
+isolated cache and evidence directory. Choosing **Resume from checkpoint**
+reuses the original evidence package so market, news, and fundamentals inputs
+do not silently change between attempts.
 
 ## Reproducibility
 
