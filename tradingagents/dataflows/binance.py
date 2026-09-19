@@ -69,14 +69,22 @@ def _as_of_millis(as_of: str | datetime | None) -> int:
     if isinstance(as_of, datetime):
         dt = as_of if as_of.tzinfo else as_of.replace(tzinfo=timezone.utc)
         return int(dt.astimezone(timezone.utc).timestamp() * 1000)
+    text = str(as_of).strip()
     try:
-        parsed = date.fromisoformat(str(as_of))
-    except ValueError as exc:
-        raise ValueError("as_of must be an ISO date or datetime.") from exc
-    # 仅传入日期时使用对应 UTC 日期的最后一刻，以兼容项目现有的历史分析日期语义，
-    # 同时排除在该截止时间之后才收盘的 K 线。
-    dt = datetime.combine(parsed, time.max, tzinfo=timezone.utc)
-    return int(dt.timestamp() * 1000)
+        parsed_day = date.fromisoformat(text)
+    except ValueError:
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("as_of must be an ISO date or datetime.") from exc
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.astimezone(timezone.utc)
+    else:
+        # 历史日期使用当天最后一个可表达的毫秒，避免和币安毫秒时间戳产生伪差异。
+        dt = datetime.combine(parsed_day, time.max, tzinfo=timezone.utc)
+    whole_seconds = int(dt.replace(microsecond=0).timestamp())
+    return whole_seconds * 1000 + dt.microsecond // 1000
 
 
 def _get_json(

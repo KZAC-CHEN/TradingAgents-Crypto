@@ -73,15 +73,36 @@ def _utc_timestamp(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _analysis_cutoff(curr_date: str) -> tuple[date, datetime]:
-    """解析分析日期并返回该 UTC 日期最后一刻。"""
-    try:
-        day = date.fromisoformat(str(curr_date).strip())
-    except ValueError as exc:
-        raise ValueError("curr_date 必须为 YYYY-MM-DD 格式。") from exc
-    if day > datetime.now().astimezone().date():
-        raise ValueError("curr_date 不能晚于当前本地日期。")
-    return day, datetime.combine(day, time.max, tzinfo=timezone.utc)
+def _analysis_cutoff(curr_date: str | date | datetime) -> tuple[date, datetime]:
+    """解析 UTC 分析截止时间，并兼容原有日期输入。"""
+    now = datetime.now(timezone.utc)
+    date_only = False
+    if isinstance(curr_date, datetime):
+        cutoff = curr_date if curr_date.tzinfo else curr_date.replace(tzinfo=timezone.utc)
+        cutoff = cutoff.astimezone(timezone.utc)
+    elif isinstance(curr_date, date):
+        cutoff = datetime.combine(curr_date, time.max, tzinfo=timezone.utc)
+        date_only = True
+    else:
+        text = str(curr_date).strip()
+        try:
+            day = date.fromisoformat(text)
+        except ValueError:
+            try:
+                cutoff = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("curr_date 必须为 ISO 日期或时间。") from exc
+            if cutoff.tzinfo is None:
+                cutoff = cutoff.replace(tzinfo=timezone.utc)
+            cutoff = cutoff.astimezone(timezone.utc)
+        else:
+            cutoff = datetime.combine(day, time.max, tzinfo=timezone.utc)
+            date_only = True
+    if cutoff.date() > now.date() or cutoff > now and not date_only:
+        raise ValueError("curr_date 不能晚于当前 UTC 时间。")
+    if cutoff.date() == now.date():
+        cutoff = min(cutoff, now)
+    return cutoff.date(), cutoff
 
 
 def _request(
@@ -452,7 +473,7 @@ def calculate_fundamental_ratios(
 
 def collect_crypto_fundamentals_snapshot(
     symbol: str,
-    curr_date: str,
+    curr_date: str | date | datetime,
     *,
     session: requests.Session | None = None,
     timeout: float | None = None,

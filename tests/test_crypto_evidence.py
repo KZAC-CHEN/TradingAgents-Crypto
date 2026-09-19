@@ -4,18 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timezone
 
 import pytest
 
 import tradingagents.dataflows.crypto_evidence as evidence
+from tradingagents.dataflows.binance import BinanceEndpoints, collect_market_snapshot
 
-
-def _cutoff(day: str) -> str:
-    return f"{day}T23:59:59.999999+00:00"
+_FROZEN_NOW = datetime(2026, 9, 19, 8, 12, 18, 123456, tzinfo=timezone.utc)
+_CURRENT_CUTOFF = "2026-09-19T08:12:18.123000+00:00"
 
 
 def _install_fake_sources(monkeypatch, calls: dict[str, int]) -> None:
     """安装不访问网络的三个确定性来源。"""
+
+    monkeypatch.setattr(evidence, "_utc_now", lambda: _FROZEN_NOW)
 
     def market(symbol: str, *, as_of: str):
         calls["market"] += 1
@@ -23,26 +26,26 @@ def _install_fake_sources(monkeypatch, calls: dict[str, int]) -> None:
             "schema_version": 1,
             "provider": "binance",
             "symbol": symbol,
-            "as_of_utc": _cutoff(as_of),
+            "as_of_utc": as_of,
             "warnings": [],
         }
 
-    def news(symbol: str, day: str):
+    def news(symbol: str, cutoff: str):
         calls["news"] += 1
         return {
             "schema_version": "1.0",
             "symbol": symbol,
-            "as_of_utc": _cutoff(day),
+            "as_of_utc": cutoff,
             "providers": [{"provider": "CoinDesk RSS", "state": "ok", "item_count": 2}],
             "warnings": [],
         }
 
-    def fundamentals(symbol: str, day: str):
+    def fundamentals(symbol: str, cutoff: str):
         calls["fundamentals"] += 1
         return {
             "schema_version": "1.0",
             "symbol": symbol,
-            "as_of_utc": _cutoff(day),
+            "as_of_utc": cutoff,
             "providers": [{"provider": "CoinGecko", "state": "ok", "item_count": 1}],
             "warnings": ["历史供应量为估算值"],
         }
@@ -86,7 +89,7 @@ def test_prepare_bundle_collects_each_requested_section_once(tmp_path, monkeypat
     assert calls == {"market": 1, "news": 1, "fundamentals": 1}
     assert manifest["symbol"] == "BTCUSDT"
     assert manifest["requested_sections"] == ["market", "news", "fundamentals"]
-    assert manifest["as_of_utc"] == _cutoff("2026-09-19")
+    assert manifest["as_of_utc"] == _CURRENT_CUTOFF
     assert manifest["warnings"] == ["历史供应量为估算值"]
     bundle_dir = tmp_path / "BTCUSDT" / "2026-09-19" / "crypto_evidence"
     on_disk = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -198,6 +201,92 @@ def test_section_failure_is_persisted_without_aborting_other_sections(tmp_path, 
     report = evidence.load_crypto_evidence_report("BTC", "2026-09-19", "news", results_dir=tmp_path)
     assert "新闻证据不可用" in report
     assert "新闻网关不可用" in report
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self.payload = payload
+        self.status_code = 200
+        self.text = ""
+
+    def json(self):
+        return self.payload
+
+
+class _FakeSession:
+    def __init__(self, candle_rows):
+        self.candle_rows = candle_rows
+
+    def get(self, url, params, timeout):
+        if url.endswith("/klines"):
+            return _FakeResponse(self.candle_rows)
+        return _FakeResponse([])
+
+
+def _kline(open_ms: int, close_ms: int, close: str) -> list[object]:
+    return [
+        open_ms,
+        "100",
+        "105",
+        "99",
+        close,
+        "12",
+        close_ms,
+        "1200",
+        20,
+        "6",
+        "600",
+    ]
+
+
+@pytest.mark.unit
+def test_bundle_accepts_real_market_collector_millisecond_contract(tmp_path, monkeypatch):
+    """真实市场采集器的毫秒截止时间应通过证据包校验并排除未收盘 K 线。"""
+    monkeypatch.setattr(evidence, "_utc_now", lambda: _FROZEN_NOW)
+    cutoff_ms = int(_FROZEN_NOW.timestamp() * 1000)
+    session = _FakeSession(
+        [
+            _kline(cutoff_ms - 10_000, cutoff_ms - 1_000, "102"),
+            _kline(cutoff_ms - 1_000, cutoff_ms + 1_000, "999"),
+        ]
+    )
+    endpoints = BinanceEndpoints(spot="https://spot.test", futures="https://future.test")
+
+    def market(symbol: str, *, as_of: str):
+        return collect_market_snapshot(
+            symbol,
+            as_of=as_of,
+            session=session,
+            endpoints=endpoints,
+        )
+
+    monkeypatch.setattr(evidence, "collect_market_snapshot", market)
+    monkeypatch.setattr(
+        evidence,
+        "build_deterministic_market_report",
+        lambda snapshot: f"市场报告 {snapshot['symbol']}\n",
+    )
+
+    manifest = evidence.prepare_crypto_evidence_bundle(
+        "BTC-USD",
+        "2026-09-19",
+        selected_analysts=("market",),
+        results_dir=tmp_path,
+    )
+
+    assert manifest["sections"]["market"]["state"] == "ok"
+    snapshot_path = tmp_path / "BTCUSDT" / "2026-09-19" / "crypto_evidence" / "market_snapshot.json"
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert snapshot["as_of_utc"] == _CURRENT_CUTOFF
+    assert [row["Close"] for row in snapshot["timeframes"]["4h"]["spot"]["candles"]] == [102.0]
+
+
+@pytest.mark.unit
+def test_cutoff_comparison_uses_utc_millisecond_precision():
+    assert evidence._same_cutoff(
+        "2026-09-18T23:59:59.999999+00:00",
+        "2026-09-18T23:59:59.999000+00:00",
+    )
 
 
 @pytest.mark.unit

@@ -43,6 +43,44 @@ class CryptoEvidenceError(RuntimeError):
     """证据包缺失、损坏或与当前运行不匹配。"""
 
 
+def _utc_now() -> datetime:
+    """返回当前 UTC 时间，独立封装便于稳定测试时间边界。"""
+    return datetime.now(timezone.utc)
+
+
+def _millisecond_datetime(value: datetime) -> datetime:
+    """把 UTC 时间截断到数据源共同支持的毫秒精度。"""
+    normalized = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    normalized = normalized.astimezone(timezone.utc)
+    return normalized.replace(microsecond=(normalized.microsecond // 1000) * 1000)
+
+
+def _common_cutoff(analysis_date: str) -> datetime:
+    """返回运行共同截止时间；当天不得越过当前 UTC 时刻。"""
+    analysis_day = date.fromisoformat(analysis_date)
+    now = _millisecond_datetime(_utc_now())
+    if analysis_day > now.date():
+        raise CryptoEvidenceError("加密分析日期不能晚于当前 UTC 日期。")
+    end_of_day = datetime.combine(analysis_day, time.max, tzinfo=timezone.utc)
+    return _millisecond_datetime(min(end_of_day, now))
+
+
+def _same_cutoff(left: Any, right: Any) -> bool:
+    """按 UTC 毫秒比较两个 ISO 时间，消除来源精度表示差异。"""
+    try:
+        values = []
+        for raw in (left, right):
+            parsed = datetime.fromisoformat(str(raw).strip().replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            parsed = parsed.astimezone(timezone.utc)
+            whole_seconds = int(parsed.replace(microsecond=0).timestamp())
+            values.append(whole_seconds * 1000 + parsed.microsecond // 1000)
+        return values[0] == values[1]
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
 def sections_for_analysts(selected_analysts: Iterable[str]) -> tuple[str, ...]:
     """把分析师选择映射为需要预采集的证据分区。"""
     requested = {_ANALYST_SECTIONS[name] for name in selected_analysts if name in _ANALYST_SECTIONS}
@@ -91,10 +129,8 @@ def prepare_crypto_evidence_bundle(
 
     bundle_dir.mkdir(parents=True, exist_ok=True)
     _remove_stale_section_files(bundle_dir, requested_sections)
-    common_cutoff = datetime.combine(
-        date.fromisoformat(normalized_date), time.max, tzinfo=timezone.utc
-    ).isoformat()
-    collected_at = datetime.now(timezone.utc).isoformat()
+    common_cutoff = _common_cutoff(normalized_date).isoformat()
+    collected_at = _utc_now().isoformat()
     manifest: dict[str, Any] = {
         "schema_version": EVIDENCE_SCHEMA_VERSION,
         "bundle_id": str(uuid4()),
@@ -111,7 +147,7 @@ def prepare_crypto_evidence_bundle(
 
     collectors: dict[str, tuple[Callable[..., dict[str, Any]], Callable[[dict[str, Any]], str]]] = {
         "market": (
-            lambda value, day: collect_market_snapshot(value, as_of=day),
+            lambda value, cutoff: collect_market_snapshot(value, as_of=cutoff),
             build_deterministic_market_report,
         ),
         "news": (collect_crypto_news_snapshot, build_crypto_news_report),
@@ -249,10 +285,10 @@ def _collect_section(
     state = "ok"
     error_message = ""
     try:
-        snapshot = collector(symbol, analysis_date)
+        snapshot = collector(symbol, common_cutoff)
         if snapshot.get("symbol") != symbol:
             raise CryptoEvidenceError(f"{section} 快照交易对不一致。")
-        if snapshot.get("as_of_utc") != common_cutoff:
+        if not _same_cutoff(snapshot.get("as_of_utc"), common_cutoff):
             raise CryptoEvidenceError(f"{section} 快照截止时间不一致。")
         report = renderer(snapshot)
     except Exception as exc:

@@ -155,13 +155,39 @@ def _parse_datetime(value: Any) -> datetime | None:
     return None
 
 
-def _analysis_window(curr_date: str, lookback_days: int) -> tuple[datetime, datetime]:
-    """返回包含截止日期全天的 UTC 时间窗口。"""
-    try:
-        day = date.fromisoformat(str(curr_date))
-    except ValueError as exc:
-        raise ValueError("curr_date 必须为 YYYY-MM-DD 格式。") from exc
-    end = datetime.combine(day, datetime_time.max, tzinfo=timezone.utc)
+def _analysis_window(
+    curr_date: str | date | datetime,
+    lookback_days: int,
+) -> tuple[datetime, datetime]:
+    """返回截止到指定 UTC 时刻的新闻窗口，并兼容原有日期输入。"""
+    now = datetime.now(timezone.utc)
+    date_only = False
+    if isinstance(curr_date, datetime):
+        end = curr_date if curr_date.tzinfo else curr_date.replace(tzinfo=timezone.utc)
+        end = end.astimezone(timezone.utc)
+    elif isinstance(curr_date, date):
+        end = datetime.combine(curr_date, datetime_time.max, tzinfo=timezone.utc)
+        date_only = True
+    else:
+        text = str(curr_date).strip()
+        try:
+            day = date.fromisoformat(text)
+        except ValueError:
+            try:
+                end = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("curr_date 必须为 ISO 日期或时间。") from exc
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=timezone.utc)
+            end = end.astimezone(timezone.utc)
+        else:
+            end = datetime.combine(day, datetime_time.max, tzinfo=timezone.utc)
+            date_only = True
+    if end.date() > now.date() or end > now and not date_only:
+        raise ValueError("curr_date 不能晚于当前 UTC 时间。")
+    if end.date() == now.date():
+        end = min(end, now)
+    day = end.date()
     start_day = day - timedelta(days=max(1, int(lookback_days)))
     return datetime.combine(start_day, datetime_time.min, tzinfo=timezone.utc), end
 
@@ -808,7 +834,7 @@ def _deduplicate(items: list[CryptoNewsItem]) -> list[CryptoNewsItem]:
 
 def collect_crypto_news_snapshot(
     symbol: str,
-    curr_date: str,
+    curr_date: str | date | datetime,
     *,
     session: requests.Session | None = None,
     lookback_days: int | None = None,
