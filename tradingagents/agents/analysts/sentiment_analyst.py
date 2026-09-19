@@ -134,7 +134,7 @@ def _build_crypto_system_message(
 1. Weight official Binance and OKX announcements, regulator releases, and central-bank releases above commentary or social posts.
 2. Use AiCoin as Chinese-language news and an X-information proxy. Clearly distinguish its proxy content from native X API content.
 3. Use CoinDesk Data or its official RSS fallback as English-language reporting. Do not infer that a source was queried when its coverage table says unavailable or unconfigured.
-4. Treat RootData items as project-fundamental events. Treat funding, token unlocks, governance, team changes, security incidents, and ecosystem adoption as separate catalyst types.
+4. Treat RootData API items and project-maintainer release feeds as project-fundamental events. Reference links marked for manual verification are not evidence that their pages were read. Treat funding, token unlocks, governance, team changes, security incidents, and ecosystem adoption as separate catalyst types.
 5. Weight social engagement by both sample size and source quality. High engagement can indicate attention or crowding; it does not prove direction.
 6. Look for agreement and divergence across Chinese news, English news, official events, macro sources, and social information.
 7. Reduce confidence when coverage is sparse, failed, unconfigured, or limited to one source. Never invent missing headlines, posts, links, dates, or sentiment labels.

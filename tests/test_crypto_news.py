@@ -24,6 +24,10 @@ from tradingagents.dataflows.crypto_news import (
     parse_rootdata_events,
     parse_rss,
 )
+from tradingagents.dataflows.crypto_project_sources import (
+    build_project_reference_links,
+    get_project_profile,
+)
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 
 
@@ -80,6 +84,24 @@ def test_rss_parser_supports_rss_and_strips_html():
     assert len(items) == 1
     assert items[0].summary == "SEC publishes a digital asset update."
     assert items[0].published_at == "2026-09-18T12:00:00+00:00"
+
+
+@pytest.mark.unit
+def test_project_feed_parser_marks_entries_as_project_updates():
+    xml = """<?xml version="1.0"?>
+    <feed xmlns="http://www.w3.org/2005/Atom"><entry>
+      <title>v30.0 released</title>
+      <updated>2026-09-17T10:00:00Z</updated>
+      <link href="https://github.com/bitcoin/bitcoin/releases/tag/v30.0" />
+    </entry></feed>"""
+
+    items = parse_rss(
+        xml,
+        source="Bitcoin Core Releases",
+        source_type="project_fundamentals",
+    )
+
+    assert items[0].event_type == "project_update"
 
 
 @pytest.mark.unit
@@ -189,6 +211,24 @@ def test_rootdata_fetch_uses_official_search_then_event_flow(monkeypatch):
     assert items[0].title == "Bitcoin: Network Upgrade"
 
 
+@pytest.mark.unit
+def test_official_project_source_registry_exposes_only_manual_reference_links():
+    """登记表应提供官方入口，并明确把 RootData 标为人工核对。"""
+    profile = get_project_profile("BTC")
+    references = build_project_reference_links(
+        "BTC",
+        include_official=True,
+        include_rootdata=True,
+    )
+
+    assert profile is not None
+    assert profile.feeds[0].url == "https://github.com/bitcoin/bitcoin/releases.atom"
+    assert any(reference["kind"] == "github" for reference in references)
+    rootdata = next(reference for reference in references if reference["kind"] == "rootdata_manual")
+    assert rootdata["url"] == "https://www.rootdata.com/"
+    assert "不会自动抓取" in rootdata["note"]
+
+
 def _news_item(
     title: str,
     published_at: str,
@@ -205,6 +245,104 @@ def _news_item(
         published_at=published_at,
         url=url,
     )
+
+
+def _stub_nonproject_sources(monkeypatch, project_item: CryptoNewsItem | None = None):
+    """屏蔽其他来源，只保留项目官方订阅供降级测试使用。"""
+    monkeypatch.delenv("ROOTDATA_API_KEY", raising=False)
+    monkeypatch.delenv("COINDESK_API_KEY", raising=False)
+    monkeypatch.delenv("AICOIN_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("AICOIN_ACCESS_SECRET", raising=False)
+    monkeypatch.delenv("JIN10_API_URL", raising=False)
+    monkeypatch.delenv("JIN10_API_KEY", raising=False)
+    monkeypatch.delenv("X_BEARER_TOKEN", raising=False)
+    monkeypatch.setattr(crypto_news, "fetch_exchange_announcements", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        crypto_news,
+        "fetch_aicoin",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            crypto_news.CryptoNewsError("缺少 AiCoin 凭证。")
+        ),
+    )
+    monkeypatch.setattr(
+        crypto_news,
+        "fetch_configured_provider",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            crypto_news.CryptoNewsError("缺少授权配置。")
+        ),
+    )
+    monkeypatch.setattr(
+        crypto_news,
+        "fetch_x",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            crypto_news.CryptoNewsError("缺少 X_BEARER_TOKEN。")
+        ),
+    )
+
+    feed_calls = []
+
+    def fake_fetch_rss(url, *, source, source_type, **kwargs):
+        feed_calls.append((url, source, source_type))
+        if url.endswith("/releases.atom") and project_item is not None:
+            return [project_item]
+        return []
+
+    monkeypatch.setattr(crypto_news, "fetch_rss", fake_fetch_rss)
+    return feed_calls
+
+
+@pytest.mark.unit
+def test_missing_rootdata_key_defaults_to_official_project_feed(monkeypatch):
+    """无 RootData Key 时应读取项目维护方订阅，而不是抓取 RootData 网页。"""
+    monkeypatch.setenv("TRADINGAGENTS_ROOTDATA_FALLBACK_MODE", "official_sources")
+    feed_calls = _stub_nonproject_sources(
+        monkeypatch,
+        _news_item(
+            "v30.0 released",
+            "2026-09-17T10:00:00+00:00",
+            source="Bitcoin Core Releases",
+            source_type="project_fundamentals",
+            url="https://github.com/bitcoin/bitcoin/releases/tag/v30.0",
+        ),
+    )
+
+    snapshot = collect_crypto_news_snapshot("BTC-USD", "2026-09-18", lookback_days=7)
+
+    assert any("bitcoin/bitcoin/releases.atom" in call[0] for call in feed_calls)
+    assert any(item["title"] == "v30.0 released" for item in snapshot["items"])
+    rootdata = next(status for status in snapshot["providers"] if status["provider"] == "RootData")
+    assert rootdata["state"] == "disabled"
+    assert "未自动抓取 RootData" in rootdata["detail"]
+    assert any(
+        reference["kind"] == "rootdata_manual"
+        for reference in snapshot["project_references"]
+    )
+
+
+@pytest.mark.unit
+def test_manual_link_mode_does_not_fetch_project_feed(monkeypatch):
+    """仅链接模式不得访问项目订阅或 RootData 页面。"""
+    monkeypatch.setenv("TRADINGAGENTS_ROOTDATA_FALLBACK_MODE", "manual_link")
+    feed_calls = _stub_nonproject_sources(monkeypatch)
+
+    snapshot = collect_crypto_news_snapshot("BTC-USD", "2026-09-18", lookback_days=7)
+
+    assert not any(url.endswith("/releases.atom") for url, _, _ in feed_calls)
+    assert [reference["kind"] for reference in snapshot["project_references"]] == [
+        "rootdata_manual"
+    ]
+
+
+@pytest.mark.unit
+def test_disabled_mode_omits_project_references(monkeypatch):
+    """禁用模式不应采集或输出项目核对入口。"""
+    monkeypatch.setenv("TRADINGAGENTS_ROOTDATA_FALLBACK_MODE", "disabled")
+    feed_calls = _stub_nonproject_sources(monkeypatch)
+
+    snapshot = collect_crypto_news_snapshot("BTC-USD", "2026-09-18", lookback_days=7)
+
+    assert not any(url.endswith("/releases.atom") for url, _, _ in feed_calls)
+    assert snapshot["project_references"] == []
 
 
 @pytest.mark.unit
@@ -341,6 +479,14 @@ def test_report_exposes_coverage_sections_and_warnings():
             {"provider": "OKX", "state": "ok", "item_count": 1, "detail": ""},
             {"provider": "X API", "state": "disabled", "item_count": 0, "detail": "缺少凭证"},
         ],
+        "project_references": [
+            {
+                "label": "RootData 手动核对",
+                "url": "https://www.rootdata.com/",
+                "kind": "rootdata_manual",
+                "note": "系统不会自动抓取 RootData 页面。",
+            }
+        ],
         "warnings": ["Binance：官方公告页返回空正文。"],
     }
 
@@ -349,6 +495,9 @@ def test_report_exposes_coverage_sections_and_warnings():
     assert "## 来源覆盖" in report
     assert "## 官方交易所事件" in report
     assert "## 原生 X 信息" in report
+    assert "## 项目人工核对入口" in report
+    assert "不属于本次快照证据" in report
+    assert "[RootData 手动核对](https://www.rootdata.com/)" in report
     assert "[原文](https://example.com/okx)" in report
     assert "Binance：官方公告页返回空正文" in report
 

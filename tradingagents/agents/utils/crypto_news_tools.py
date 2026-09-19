@@ -60,7 +60,8 @@ def get_crypto_news_report(
 ) -> str:
     """返回统一、可追溯且严格按分析日期截断的加密新闻与事件报告。
 
-    来源包括 Binance、OKX、AiCoin、CoinDesk、RootData、官方宏观公告和可选
-    X API。缺少凭证或来源失败时，报告会显示覆盖状态而不是伪造内容。
+    来源包括 Binance、OKX、AiCoin、CoinDesk、RootData API、项目维护方公开
+    订阅、官方宏观公告和可选 X API。缺少凭证或来源失败时，报告会显示覆盖
+    状态而不是伪造内容；人工核对链接不会被当作已读取的证据。
     """
     return get_crypto_news_report_text(symbol, curr_date)

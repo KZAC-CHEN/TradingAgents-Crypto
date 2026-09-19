@@ -79,6 +79,21 @@ CONFIG_GROUPS = (
             ConfigField("AICOIN_ACCESS_SECRET", "AiCoin Access Secret", description="用于中文新闻与 X 信息代理。"),
             ConfigField("COINDESK_API_KEY", "CoinDesk Data API Key", description="未配置时自动使用可用的 CoinDesk RSS。"),
             ConfigField("ROOTDATA_API_KEY", "RootData API Key", description="用于项目基本面与融资事件。"),
+            ConfigField(
+                "TRADINGAGENTS_ROOTDATA_FALLBACK_MODE",
+                "RootData 无 Key 降级模式",
+                input_type="select",
+                secret=False,
+                description=(
+                    "配置 API Key 时始终优先使用 API；无 Key 时默认聚合项目官方来源，"
+                    "但不包含 RootData 专有的团队、融资关系和指数。"
+                ),
+                options=(
+                    ("official_sources", "项目官方来源聚合（推荐）"),
+                    ("manual_link", "仅提供 RootData 手动核对链接"),
+                    ("disabled", "禁用项目基本面降级"),
+                ),
+            ),
             ConfigField("JIN10_API_URL", "金十授权 API 地址", input_type="url", secret=False, description="仅填写已获授权的完整 HTTP(S) 接口地址。", placeholder="https://..."),
             ConfigField("JIN10_API_KEY", "金十 API Key", description="与金十授权 API 地址配套使用。"),
             ConfigField("X_BEARER_TOKEN", "X Bearer Token", description="可选；用于原生 X API 数据。"),

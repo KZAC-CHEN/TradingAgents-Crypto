@@ -27,6 +27,10 @@ from parsel import Selector
 
 from tradingagents.dataflows.binance import normalize_binance_symbol
 from tradingagents.dataflows.config import get_config
+from tradingagents.dataflows.crypto_project_sources import (
+    build_project_reference_links,
+    get_project_profile,
+)
 
 BINANCE_ANNOUNCEMENTS_URL = "https://www.binance.com/en/support/announcement"
 OKX_ANNOUNCEMENTS_URL = "https://www.okx.com/help/category/announcements"
@@ -66,6 +70,8 @@ _HIGH_IMPACT_TERMS = (
     "inflation",
     "monetary policy",
 )
+
+_ROOTDATA_FALLBACK_MODES = {"official_sources", "manual_link", "disabled"}
 
 
 class CryptoNewsError(RuntimeError):
@@ -166,6 +172,18 @@ def _asset_terms(symbol: str) -> tuple[str, tuple[str, ...]]:
     base = canonical.removesuffix("USDT")
     aliases = _ASSET_ALIASES.get(base, (base.lower(),))
     return base, tuple(dict.fromkeys((base.lower(), *aliases)))
+
+
+def _rootdata_fallback_mode(config: dict[str, Any]) -> str:
+    """解析并校验无 RootData Key 时的项目基本面降级模式。"""
+    mode = str(
+        os.getenv("TRADINGAGENTS_ROOTDATA_FALLBACK_MODE")
+        or config.get("rootdata_fallback_mode", "official_sources")
+    ).strip().lower()
+    if mode not in _ROOTDATA_FALLBACK_MODES:
+        choices = "、".join(sorted(_ROOTDATA_FALLBACK_MODES))
+        raise ValueError(f"TRADINGAGENTS_ROOTDATA_FALLBACK_MODE 必须是：{choices}。")
+    return mode
 
 
 def _is_relevant(item: CryptoNewsItem, terms: tuple[str, ...], *, allow_macro: bool) -> bool:
@@ -558,7 +576,13 @@ def parse_rss(
             published_at=first_text("pubDate", "published", "updated", "date"),
             url=link,
             language="en",
-            event_type="macro" if source_type == "macro" else "news",
+            event_type=(
+                "macro"
+                if source_type == "macro"
+                else "project_update"
+                if source_type == "project_fundamentals"
+                else "news"
+            ),
         )
         if parsed:
             items.append(parsed)
@@ -796,6 +820,7 @@ def collect_crypto_news_snapshot(
     days = int(lookback_days or config.get("crypto_news_lookback_days", 7))
     item_limit = int(limit or config.get("crypto_news_article_limit", 50))
     request_timeout = float(timeout or config.get("crypto_news_timeout", 12.0))
+    rootdata_fallback_mode = _rootdata_fallback_mode(config)
     start, end = _analysis_window(curr_date, days)
     base, terms = _asset_terms(symbol)
     client = session or requests.Session()
@@ -810,6 +835,7 @@ def collect_crypto_news_snapshot(
         *,
         optional: bool = False,
         allow_macro: bool = False,
+        assume_relevant: bool = False,
     ) -> bool:
         try:
             fetched = fetcher()
@@ -827,7 +853,7 @@ def collect_crypto_news_snapshot(
             item
             for item in fetched
             if _within_window(item, start, end)
-            and _is_relevant(item, terms, allow_macro=allow_macro)
+            and (assume_relevant or _is_relevant(item, terms, allow_macro=allow_macro))
         ]
         statuses.append(ProviderStatus(provider, "ok", item_count=len(filtered)))
         all_items.extend(filtered)
@@ -874,17 +900,83 @@ def collect_crypto_news_snapshot(
             ),
         )
 
-    run(
-        "RootData",
-        lambda: fetch_rootdata(
-            terms,
-            start=start,
-            end=end,
-            session=client,
-            timeout=request_timeout,
-        ),
-        optional=True,
-    )
+    rootdata_api_key = os.getenv("ROOTDATA_API_KEY", "").strip()
+    project_references: list[dict[str, str]] = []
+    if rootdata_api_key:
+        run(
+            "RootData",
+            lambda: fetch_rootdata(
+                terms,
+                start=start,
+                end=end,
+                session=client,
+                timeout=request_timeout,
+            ),
+        )
+        project_references = build_project_reference_links(
+            base,
+            include_official=True,
+            include_rootdata=True,
+        )
+    elif rootdata_fallback_mode == "official_sources":
+        statuses.append(
+            ProviderStatus(
+                "RootData",
+                "disabled",
+                detail=(
+                    "缺少 ROOTDATA_API_KEY；已改用项目维护方公开来源，"
+                    "未自动抓取 RootData 网站。"
+                ),
+            )
+        )
+        profile = get_project_profile(base)
+        if profile is None:
+            statuses.append(
+                ProviderStatus(
+                    "项目官方来源",
+                    "disabled",
+                    detail=f"尚未登记 {base} 的项目官方来源。",
+                )
+            )
+        else:
+            for feed in profile.feeds:
+                run(
+                    feed.name,
+                    lambda feed=feed: fetch_rss(
+                        feed.url,
+                        source=feed.name,
+                        source_type="project_fundamentals",
+                        session=client,
+                        timeout=request_timeout,
+                    ),
+                    assume_relevant=True,
+                )
+        project_references = build_project_reference_links(
+            base,
+            include_official=True,
+            include_rootdata=True,
+        )
+    elif rootdata_fallback_mode == "manual_link":
+        statuses.append(
+            ProviderStatus(
+                "RootData",
+                "disabled",
+                detail="缺少 ROOTDATA_API_KEY；仅提供 RootData 人工核对链接。",
+            )
+        )
+        project_references = build_project_reference_links(
+            base,
+            include_official=False,
+            include_rootdata=True,
+        )
+    else:
+        statuses.append(
+            ProviderStatus(
+                "RootData",
+                "disabled",
+                detail="缺少 ROOTDATA_API_KEY，项目基本面降级已禁用。",
+            )
+        )
     run(
         "Jin10",
         lambda: fetch_configured_provider(
@@ -929,6 +1021,7 @@ def collect_crypto_news_snapshot(
         "lookback_days": days,
         "items": [asdict(item) for item in unique],
         "providers": [asdict(status) for status in statuses],
+        "project_references": project_references,
         "warnings": warnings,
     }
 
@@ -982,11 +1075,27 @@ def build_crypto_news_report(snapshot: dict[str, Any]) -> str:
             )
             if entry.get("summary") and entry["summary"] != entry["title"]:
                 lines.append(f"  - 摘要：{entry['summary']}")
+            if entry.get("event_type") not in (None, "", "news"):
+                lines.append(f"  - 事件类型：{entry['event_type']}")
             if entry.get("sentiment"):
                 lines.append(f"  - 供应商情绪标签：{entry['sentiment']}")
             if entry.get("engagement"):
                 metrics = "，".join(f"{key}={value}" for key, value in entry["engagement"].items())
                 lines.append(f"  - 互动：{metrics}")
+
+    if snapshot.get("project_references"):
+        lines.extend(
+            [
+                "",
+                "## 项目人工核对入口",
+                "",
+                "> 以下链接未由系统自动读取，不属于本次快照证据；用于人工复核项目资料。",
+                "",
+            ]
+        )
+        for reference in snapshot["project_references"]:
+            note = f" — {reference['note']}" if reference.get("note") else ""
+            lines.append(f"- [{reference['label']}]({reference['url']}){note}")
 
     if snapshot.get("warnings"):
         lines.extend(["", "## 采集警告", ""])

@@ -23,6 +23,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_CRYPTO_NEWS_LOOKBACK_DAYS": "crypto_news_lookback_days",
     "TRADINGAGENTS_CRYPTO_NEWS_ARTICLE_LIMIT": "crypto_news_article_limit",
     "TRADINGAGENTS_CRYPTO_NEWS_TIMEOUT":       "crypto_news_timeout",
+    "TRADINGAGENTS_ROOTDATA_FALLBACK_MODE":    "rootdata_fallback_mode",
     # Provider-specific reasoning/thinking knobs (None = each provider's own
     # default). Settable here for non-interactive runs; the CLI also offers an
     # interactive choice, which is skipped when the matching var is set.
@@ -129,6 +130,8 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "crypto_news_lookback_days": 7,
     "crypto_news_article_limit": 50,
     "crypto_news_timeout": 12.0,
+    # 未配置 RootData API 时，默认读取项目维护方公开的发布订阅并提供人工核对链接。
+    "rootdata_fallback_mode": "official_sources",
     # Search queries used by get_global_news for macro headlines. Extend or
     # replace to broaden geographic / sector coverage.
     "global_news_queries": [

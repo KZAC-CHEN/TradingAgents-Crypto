@@ -170,6 +170,13 @@ The service listens on `127.0.0.1` only. Use `--no-browser` if you want to open
 the displayed local URL yourself, or `--port 9000` to choose another local port.
 After saving, start a new analysis process so it reads the updated settings.
 
+`ROOTDATA_API_KEY` remains optional. When it is absent, the default
+`official_sources` fallback reads registered project-maintainer release feeds
+and adds official website, documentation, governance, and RootData manual-check
+links to the report. It does not scrape RootData web pages. The configuration
+page also offers `manual_link` (links only) and `disabled` modes through
+`TRADINGAGENTS_ROOTDATA_FALLBACK_MODE`.
+
 You can also copy `.env.example` to `.env` and fill in your keys manually:
 ```bash
 cp .env.example .env
