@@ -83,8 +83,10 @@ def _default_artifacts_root(database_path: Path) -> Path:
 
 
 def _frontend_root() -> Path:
-    resource = files("tradingagents.config_ui")
-    return Path(str(resource))
+    react_root = Path(str(files("tradingagents.web_ui"))) / "dist"
+    if react_root.is_dir():
+        return react_root
+    return Path(str(files("tradingagents.config_ui")))
 
 
 def _config_payload(app: FastAPI) -> dict[str, Any]:

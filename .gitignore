@@ -11,10 +11,13 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+node_modules/
 downloads/
 eggs/
 .eggs/
 lib/
+!webui/src/lib/
+!webui/src/lib/**
 lib64/
 parts/
 sdist/

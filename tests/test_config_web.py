@@ -39,7 +39,7 @@ def test_get_config_hides_secret_and_serves_spa_routes(tmp_path, monkeypatch):
     assert response.json()["csrfToken"] == "test-token"
     assert "never-return-this" not in response.text
     assert page.status_code == 200
-    assert "TradingAgents 配置中心" in page.text
+    assert "TradingAgents 分析中心" in page.text
     assert "default-src 'self'" in page.headers["Content-Security-Policy"]
 
 
