@@ -78,6 +78,19 @@ CONFIG_GROUPS = (
             ConfigField("AICOIN_ACCESS_KEY_ID", "AiCoin Access Key ID", description="与 Access Secret 配套使用。"),
             ConfigField("AICOIN_ACCESS_SECRET", "AiCoin Access Secret", description="用于中文新闻与 X 信息代理。"),
             ConfigField("COINDESK_API_KEY", "CoinDesk Data API Key", description="未配置时自动使用可用的 CoinDesk RSS。"),
+            ConfigField(
+                "COINGECKO_API_KEY",
+                "CoinGecko API Key",
+                description="可选；未配置时尝试 Keyless 公共接口，配置后按下方套餐类型鉴权。",
+            ),
+            ConfigField(
+                "COINGECKO_API_PLAN",
+                "CoinGecko API 套餐",
+                input_type="select",
+                secret=False,
+                description="Demo 使用公共域名，Pro 使用 Pro API 域名。",
+                options=(("demo", "Demo / Keyless（推荐）"), ("pro", "Pro")),
+            ),
             ConfigField("ROOTDATA_API_KEY", "RootData API Key", description="用于项目基本面与融资事件。"),
             ConfigField(
                 "TRADINGAGENTS_ROOTDATA_FALLBACK_MODE",
@@ -152,6 +165,8 @@ CONFIG_GROUPS = (
             ConfigField("TRADINGAGENTS_CRYPTO_NEWS_LOOKBACK_DAYS", "加密新闻回看天数", input_type="number", secret=False, minimum=1, maximum=365, step=1),
             ConfigField("TRADINGAGENTS_CRYPTO_NEWS_ARTICLE_LIMIT", "加密新闻条目上限", input_type="number", secret=False, minimum=1, maximum=500, step=1),
             ConfigField("TRADINGAGENTS_CRYPTO_NEWS_TIMEOUT", "单个新闻请求超时（秒）", input_type="number", secret=False, minimum=1, maximum=120, step=0.5),
+            ConfigField("TRADINGAGENTS_CRYPTO_FUNDAMENTALS_TIMEOUT", "基本面请求超时（秒）", input_type="number", secret=False, minimum=1, maximum=120, step=0.5),
+            ConfigField("TRADINGAGENTS_CRYPTO_DEVELOPMENT_LOOKBACK_DAYS", "项目发布回看天数", input_type="number", secret=False, minimum=1, maximum=3650, step=1),
         ),
     ),
 )

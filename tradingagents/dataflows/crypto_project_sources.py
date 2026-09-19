@@ -30,6 +30,9 @@ class ProjectProfile:
     project_name: str
     feeds: tuple[ProjectFeed, ...]
     references: tuple[ProjectReference, ...]
+    coingecko_id: str = ""
+    defillama_entity: str = ""
+    defillama_entity_type: str = ""
 
 
 _PROJECT_PROFILES = {
@@ -43,6 +46,9 @@ _PROJECT_PROFILES = {
             ProjectReference("Bitcoin Core GitHub", "https://github.com/bitcoin/bitcoin", "github"),
             ProjectReference("Bitcoin 改进提案", "https://github.com/bitcoin/bips", "governance"),
         ),
+        coingecko_id="bitcoin",
+        defillama_entity="Bitcoin",
+        defillama_entity_type="chain",
     ),
     "ETH": ProjectProfile(
         "Ethereum",
@@ -54,6 +60,9 @@ _PROJECT_PROFILES = {
             ProjectReference("Geth GitHub", "https://github.com/ethereum/go-ethereum", "github"),
             ProjectReference("Ethereum Magicians", "https://ethereum-magicians.org/", "governance"),
         ),
+        coingecko_id="ethereum",
+        defillama_entity="Ethereum",
+        defillama_entity_type="chain",
     ),
     "BNB": ProjectProfile(
         "BNB Chain",
@@ -65,6 +74,9 @@ _PROJECT_PROFILES = {
             ProjectReference("BNB Smart Chain GitHub", "https://github.com/bnb-chain/bsc", "github"),
             ProjectReference("BNB Chain 论坛", "https://forum.bnbchain.org/", "governance"),
         ),
+        coingecko_id="binancecoin",
+        defillama_entity="BSC",
+        defillama_entity_type="chain",
     ),
     "SOL": ProjectProfile(
         "Solana",
@@ -76,6 +88,9 @@ _PROJECT_PROFILES = {
             ProjectReference("Agave GitHub", "https://github.com/anza-xyz/agave", "github"),
             ProjectReference("Solana 论坛", "https://forum.solana.com/", "governance"),
         ),
+        coingecko_id="solana",
+        defillama_entity="Solana",
+        defillama_entity_type="chain",
     ),
     "XRP": ProjectProfile(
         "XRP Ledger",
@@ -86,6 +101,9 @@ _PROJECT_PROFILES = {
             ProjectReference("XRP Ledger 博客", "https://xrpl.org/blog/", "blog"),
             ProjectReference("XRP Ledger GitHub", "https://github.com/XRPLF/rippled", "github"),
         ),
+        coingecko_id="ripple",
+        defillama_entity="XRPL",
+        defillama_entity_type="chain",
     ),
     "DOGE": ProjectProfile(
         "Dogecoin",
@@ -96,6 +114,9 @@ _PROJECT_PROFILES = {
             ProjectReference("Dogecoin Foundation 博客", "https://foundation.dogecoin.com/blog/", "blog"),
             ProjectReference("Dogecoin Core GitHub", "https://github.com/dogecoin/dogecoin", "github"),
         ),
+        coingecko_id="dogecoin",
+        defillama_entity="Doge",
+        defillama_entity_type="chain",
     ),
     "ADA": ProjectProfile(
         "Cardano",
@@ -107,6 +128,9 @@ _PROJECT_PROFILES = {
             ProjectReference("Cardano Node GitHub", "https://github.com/IntersectMBO/cardano-node", "github"),
             ProjectReference("Cardano 论坛", "https://forum.cardano.org/c/governance/140", "governance"),
         ),
+        coingecko_id="cardano",
+        defillama_entity="Cardano",
+        defillama_entity_type="chain",
     ),
     "AVAX": ProjectProfile(
         "Avalanche",
@@ -118,6 +142,9 @@ _PROJECT_PROFILES = {
             ProjectReference("AvalancheGo GitHub", "https://github.com/ava-labs/avalanchego", "github"),
             ProjectReference("Avalanche 改进提案", "https://github.com/avalanche-foundation/ACPs", "governance"),
         ),
+        coingecko_id="avalanche-2",
+        defillama_entity="Avalanche",
+        defillama_entity_type="chain",
     ),
     "LINK": ProjectProfile(
         "Chainlink",
@@ -128,6 +155,9 @@ _PROJECT_PROFILES = {
             ProjectReference("Chainlink 博客", "https://blog.chain.link/", "blog"),
             ProjectReference("Chainlink GitHub", "https://github.com/smartcontractkit/chainlink", "github"),
         ),
+        coingecko_id="chainlink",
+        defillama_entity="chainlink",
+        defillama_entity_type="protocol",
     ),
     "DOT": ProjectProfile(
         "Polkadot",
@@ -139,6 +169,7 @@ _PROJECT_PROFILES = {
             ProjectReference("Polkadot SDK GitHub", "https://github.com/paritytech/polkadot-sdk", "github"),
             ProjectReference("Polkadot OpenGov", "https://polkadot.polkassembly.io/", "governance"),
         ),
+        coingecko_id="polkadot",
     ),
 }
 

@@ -16,6 +16,8 @@ def clean_managed_environment():
     names = (
         "OPENAI_API_KEY",
         "ROOTDATA_API_KEY",
+        "COINGECKO_API_KEY",
+        "COINGECKO_API_PLAN",
         "TRADINGAGENTS_LLM_PROVIDER",
         "TRADINGAGENTS_CRYPTO_NEWS_ARTICLE_LIMIT",
     )
@@ -101,6 +103,7 @@ def test_delete_removes_only_requested_managed_value(tmp_path):
         ("JIN10_API_URL", "https://example.com/bad path", r"HTTP\(S\)"),
         ("TRADINGAGENTS_LLM_PROVIDER", "unknown", "不支持的选项"),
         ("TRADINGAGENTS_ROOTDATA_FALLBACK_MODE", "scrape", "不支持的选项"),
+        ("COINGECKO_API_PLAN", "enterprise", "不支持的选项"),
         ("TRADINGAGENTS_CRYPTO_NEWS_ARTICLE_LIMIT", "1.5", "整数"),
         ("OPENAI_API_KEY", "first\nsecond", "格式无效"),
     ],
