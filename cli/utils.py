@@ -89,13 +89,8 @@ def detect_asset_type(ticker: str) -> AssetType:
 def filter_analysts_for_asset_type(
     analysts: list[AnalystType], asset_type: AssetType
 ) -> list[AnalystType]:
-    if asset_type != AssetType.CRYPTO:
-        return analysts
-    return [
-        analyst
-        for analyst in analysts
-        if analyst != AnalystType.FUNDAMENTALS
-    ]
+    """返回当前资产类型可用的分析师；股票和加密资产均支持完整团队。"""
+    return analysts
 
 
 def get_analysis_date() -> str:

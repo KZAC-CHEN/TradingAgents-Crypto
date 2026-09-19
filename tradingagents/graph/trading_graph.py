@@ -16,6 +16,7 @@ from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_balance_sheet,
     get_cashflow,
+    get_crypto_fundamentals_report,
     get_crypto_market_report,
     get_crypto_news_report,
     get_fundamentals,
@@ -251,6 +252,8 @@ class TradingAgentsGraph:
                     get_balance_sheet,
                     get_cashflow,
                     get_income_statement,
+                    # 加密模式使用的统一估值、供应量、TVL 和开发发布报告。
+                    get_crypto_fundamentals_report,
                 ]
             ),
         }

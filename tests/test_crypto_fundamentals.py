@@ -6,7 +6,11 @@ import json
 from datetime import datetime, timezone
 
 import pytest
+from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableLambda
 
+from tradingagents.agents.analysts.fundamentals_analyst import create_fundamentals_analyst
+from tradingagents.agents.utils import crypto_fundamentals_tools
 from tradingagents.dataflows.crypto_fundamentals import (
     CryptoFundamentalsError,
     build_crypto_fundamentals_report,
@@ -19,6 +23,7 @@ from tradingagents.dataflows.crypto_fundamentals import (
 )
 from tradingagents.dataflows.crypto_news import CryptoNewsItem
 from tradingagents.dataflows.crypto_project_sources import get_project_profile
+from tradingagents.graph.trading_graph import TradingAgentsGraph
 
 
 class FakeResponse:
@@ -310,3 +315,67 @@ def test_invalid_defillama_payload_is_rejected():
             entity_type="protocol",
             cutoff=datetime(2025, 1, 8, tzinfo=timezone.utc),
         )
+
+
+@pytest.mark.unit
+def test_crypto_fundamentals_tool_reuses_cached_report(monkeypatch):
+    """同一资产和日期在缓存期内只能采集一次基本面快照。"""
+    calls = []
+    crypto_fundamentals_tools.clear_crypto_fundamentals_report_cache()
+    monkeypatch.setattr(
+        crypto_fundamentals_tools,
+        "collect_crypto_fundamentals_snapshot",
+        lambda symbol, curr_date: calls.append((symbol, curr_date)) or {"symbol": symbol},
+    )
+    monkeypatch.setattr(
+        crypto_fundamentals_tools,
+        "build_crypto_fundamentals_report",
+        lambda snapshot: f"report:{snapshot['symbol']}",
+    )
+
+    first = crypto_fundamentals_tools.get_crypto_fundamentals_report_text("BTC-USD", "2026-09-18")
+    second = crypto_fundamentals_tools.get_crypto_fundamentals_report_text("BTC-USD", "2026-09-18")
+
+    assert first == second == "report:BTC-USD"
+    assert calls == [("BTC-USD", "2026-09-18")]
+
+
+@pytest.mark.unit
+def test_fundamentals_toolnode_registers_crypto_report():
+    """图中的基本面工具节点必须能够执行加密统一报告。"""
+    nodes = TradingAgentsGraph._create_tool_nodes(None)
+
+    assert "get_crypto_fundamentals_report" in nodes["fundamentals"].tools_by_name
+
+
+@pytest.mark.unit
+def test_crypto_fundamentals_agent_uses_crypto_prompt_and_tool():
+    """加密模式应绑定单一工具并要求保留估算与来源警告。"""
+    captured = {}
+
+    def answer(prompt_value):
+        captured["prompt"] = prompt_value
+        return AIMessage(content="基本面报告", tool_calls=[])
+
+    class FakeLLM:
+        """记录分析师绑定的工具并返回固定响应。"""
+
+        def bind_tools(self, tools):
+            captured["tools"] = tools
+            return RunnableLambda(answer)
+
+    result = create_fundamentals_analyst(FakeLLM())(
+        {
+            "company_of_interest": "BTC-USD",
+            "trade_date": "2026-09-18",
+            "asset_type": "crypto",
+            "messages": [],
+        }
+    )
+
+    prompt_text = "\n".join(str(message.content) for message in captured["prompt"].messages)
+    assert [tool.name for tool in captured["tools"]] == ["get_crypto_fundamentals_report"]
+    assert "exactly once" in prompt_text
+    assert "historical supply estimated" in prompt_text
+    assert "Do not convert missing values to zero" in prompt_text
+    assert result["fundamentals_report"] == "基本面报告"

@@ -6,6 +6,9 @@ import pytest
 
 from cli.models import AnalystType, AssetType
 from cli.utils import detect_asset_type, filter_analysts_for_asset_type
+from tradingagents.agents.analysts.fundamentals_analyst import (
+    _select_fundamentals_tools,
+)
 from tradingagents.agents.analysts.market_analyst import _select_market_tools
 from tradingagents.graph import trading_graph
 from tradingagents.graph.propagation import Propagator
@@ -21,7 +24,7 @@ class CryptoAssetModeTests(unittest.TestCase):
         self.assertEqual(detect_asset_type("AAPL"), AssetType.STOCK)
         self.assertEqual(detect_asset_type("SPY"), AssetType.STOCK)
 
-    def test_filters_out_fundamentals_analyst_for_crypto(self):
+    def test_keeps_fundamentals_analyst_for_crypto(self):
         analysts = [
             AnalystType.MARKET,
             AnalystType.SOCIAL,
@@ -31,11 +34,7 @@ class CryptoAssetModeTests(unittest.TestCase):
 
         self.assertEqual(
             filter_analysts_for_asset_type(analysts, AssetType.CRYPTO),
-            [
-                AnalystType.MARKET,
-                AnalystType.SOCIAL,
-                AnalystType.NEWS,
-            ],
+            analysts,
         )
 
     def test_keeps_all_analysts_for_stock(self):
@@ -72,6 +71,20 @@ def test_stock_market_analyst_keeps_original_tools():
         "get_stock_data",
         "get_indicators",
         "get_verified_market_snapshot",
+    ]
+
+
+@pytest.mark.unit
+def test_crypto_fundamentals_analyst_only_binds_unified_tool():
+    """加密基本面分析师不得绑定股票财务报表工具。"""
+    assert [tool.name for tool in _select_fundamentals_tools("crypto")] == [
+        "get_crypto_fundamentals_report"
+    ]
+    assert [tool.name for tool in _select_fundamentals_tools("stock")] == [
+        "get_fundamentals",
+        "get_balance_sheet",
+        "get_cashflow",
+        "get_income_statement",
     ]
 
 
