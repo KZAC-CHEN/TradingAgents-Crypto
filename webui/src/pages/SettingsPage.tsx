@@ -3,7 +3,8 @@ import { Check, Eye, EyeOff, KeyRound, LoaderCircle, RefreshCw, Save, ShieldChec
 import { type ChangeEvent, useMemo, useState } from "react";
 
 import { api } from "../api";
-import { ModelInput } from "../components/ModelInput";
+import { ModelCombobox } from "../components/ModelCombobox";
+import { UiSelect } from "../components/UiSelect";
 import type { ConfigField, ModelInfo } from "../types";
 
 function SettingInput({
@@ -13,6 +14,8 @@ function SettingInput({
   onChange,
   onClear,
   models,
+  modelLoading,
+  modelError,
 }: {
   field: ConfigField;
   value: string;
@@ -20,24 +23,39 @@ function SettingInput({
   onChange: (value: string) => void;
   onClear: () => void;
   models?: ModelInfo[];
+  modelLoading?: boolean;
+  modelError?: string;
 }) {
   const [visible, setVisible] = useState(false);
   const common = {
     value,
-    onChange: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => onChange(event.target.value),
+    onChange: (event: ChangeEvent<HTMLInputElement>) => onChange(event.target.value),
   };
   return (
     <div className={`setting-field ${cleared ? "will-clear" : ""}`}>
       <div className="setting-label"><label htmlFor={field.name}>{field.label}</label><span className={field.configured && !cleared ? "configured" : ""}><i />{field.configured && !cleared ? "已配置" : "未配置"}</span></div>
       <div className="setting-input-row">
         {field.inputType === "select" ? (
-          <select id={field.name} {...common}><option value="">使用项目默认值</option>{field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
-        ) : field.name === "TRADINGAGENTS_QUICK_THINK_LLM" || field.name === "TRADINGAGENTS_DEEP_THINK_LLM" ? (
-          <ModelInput
+          <UiSelect
             id={field.name}
+            ariaLabel={field.label}
+            value={value}
+            onChange={onChange}
+            options={field.options ?? []}
+            placeholder="使用项目默认值"
+            searchable={(field.options?.length ?? 0) > 6}
+            clearable
+          />
+        ) : field.name === "TRADINGAGENTS_QUICK_THINK_LLM" || field.name === "TRADINGAGENTS_DEEP_THINK_LLM" ? (
+          <ModelCombobox
+            id={field.name}
+            ariaLabel={field.label}
+            value={value}
+            onChange={onChange}
             models={models}
+            loading={modelLoading}
+            error={modelError}
             placeholder={field.placeholder || "输入或选择模型 ID"}
-            {...common}
           />
         ) : (
           <input
@@ -149,7 +167,7 @@ export function SettingsPage() {
             </div>
           ) : null}
           <div className="settings-grid">
-            {group.fields.map((field) => <SettingInput key={field.name} field={field} value={updates[field.name] ?? (field.secret ? "" : field.value)} cleared={deletes.has(field.name)} onChange={(value) => changeField(field, value)} onClear={() => clearField(field.name)} models={modelQuery.data?.models} />)}
+            {group.fields.map((field) => <SettingInput key={field.name} field={field} value={updates[field.name] ?? (field.secret ? "" : field.value)} cleared={deletes.has(field.name)} onChange={(value) => changeField(field, value)} onClear={() => clearField(field.name)} models={modelQuery.data?.models} modelLoading={modelQuery.isLoading} modelError={modelQuery.isError ? modelQuery.error.message : undefined} />)}
           </div>
         </section>
       </div>

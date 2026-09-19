@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@hookform/resolvers": "latest",
+    "@mantine/core": "9.6.1",
+    "@mantine/hooks": "9.6.1",
     "@tanstack/react-query": "latest",
     "lucide-react": "latest",
     "react": "latest",

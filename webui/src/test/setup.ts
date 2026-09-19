@@ -1,4 +1,8 @@
 import "@testing-library/jest-dom/vitest";
+import { cleanup } from "@testing-library/react";
+import { afterEach } from "vitest";
+
+afterEach(() => cleanup());
 
 Object.defineProperty(window, "matchMedia", {
   writable: true,
@@ -13,3 +17,13 @@ Object.defineProperty(window, "matchMedia", {
     dispatchEvent: () => false,
   }),
 });
+
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+Object.defineProperty(window, "ResizeObserver", { writable: true, value: ResizeObserverMock });
+Object.defineProperty(globalThis, "ResizeObserver", { writable: true, value: ResizeObserverMock });
+Object.defineProperty(Element.prototype, "scrollIntoView", { writable: true, value: () => undefined });

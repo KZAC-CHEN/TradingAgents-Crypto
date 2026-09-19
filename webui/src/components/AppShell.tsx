@@ -8,8 +8,10 @@ import {
   Sun,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+
+import { useAppTheme } from "./AppThemeProvider";
 
 const navigation = [
   { to: "/", label: "控制台", icon: LayoutDashboard, end: true },
@@ -18,22 +20,9 @@ const navigation = [
   { to: "/settings", label: "设置", icon: Settings },
 ];
 
-type Theme = "light" | "dark";
-
-function initialTheme(): Theme {
-  const saved = localStorage.getItem("tradingagents-theme");
-  if (saved === "light" || saved === "dark") return saved;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
 export function AppShell() {
   const [open, setOpen] = useState(false);
-  const [theme, setTheme] = useState<Theme>(initialTheme);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem("tradingagents-theme", theme);
-  }, [theme]);
+  const { theme, toggleTheme } = useAppTheme();
 
   return (
     <div className="app-shell">
@@ -82,7 +71,7 @@ export function AppShell() {
           </div>
           <button
             className="icon-button"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            onClick={toggleTheme}
             aria-label="切换明暗主题"
           >
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}

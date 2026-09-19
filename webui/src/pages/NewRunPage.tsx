@@ -2,12 +2,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BrainCircuit, Check, ChevronRight, CircleAlert, Coins, Database, Landmark, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 
 import { api } from "../api";
-import { ModelInput } from "../components/ModelInput";
+import { ModelCombobox } from "../components/ModelCombobox";
+import { UiSelect } from "../components/UiSelect";
 import { detectAssetType, localIsoDate, normalizeSymbol } from "../lib/format";
 import type { AnalysisRunInput, ConfigField, PreflightResult } from "../types";
 
@@ -16,6 +17,18 @@ const ANALYSTS = [
   { value: "social", title: "情绪", description: "社区讨论与市场情绪" },
   { value: "news", title: "新闻", description: "项目、监管与宏观事件" },
   { value: "fundamentals", title: "基本面", description: "财务或链上项目基本面" },
+];
+
+const LANGUAGE_OPTIONS = [
+  { value: "Chinese", label: "中文" },
+  { value: "English", label: "English" },
+  { value: "Japanese", label: "日本語" },
+];
+
+const RESEARCH_DEPTH_OPTIONS = [
+  { value: "1", label: "快速 · 1 轮辩论" },
+  { value: "2", label: "标准 · 2 轮辩论" },
+  { value: "3", label: "深入 · 3 轮辩论" },
 ];
 
 const schema = z.object({
@@ -142,7 +155,16 @@ export function NewRunPage() {
                 {form.formState.errors.symbol ? <small className="field-error">{form.formState.errors.symbol.message}</small> : null}
               </label>
               <label className="field-control"><span>分析日期</span><input type="date" max={localIsoDate()} {...form.register("analysis_date")} /></label>
-              <label className="field-control"><span>报告语言</span><select {...form.register("output_language")}><option value="Chinese">中文</option><option value="English">English</option><option value="Japanese">日本語</option></select></label>
+              <div className="field-control">
+                <span>报告语言</span>
+                <Controller
+                  control={form.control}
+                  name="output_language"
+                  render={({ field }) => (
+                    <UiSelect ariaLabel="报告语言" value={field.value} onChange={field.onChange} options={LANGUAGE_OPTIONS} />
+                  )}
+                />
+              </div>
             </div>
           </section>
 
@@ -160,7 +182,21 @@ export function NewRunPage() {
             </div>
             {form.formState.errors.analysts ? <small className="field-error">{form.formState.errors.analysts.message}</small> : null}
             <div className="field-grid two-columns top-gap">
-              <label className="field-control"><span>研究深度</span><select {...form.register("research_depth", { valueAsNumber: true })}><option value="1">快速 · 1 轮辩论</option><option value="2">标准 · 2 轮辩论</option><option value="3">深入 · 3 轮辩论</option></select></label>
+              <div className="field-control">
+                <span>研究深度</span>
+                <Controller
+                  control={form.control}
+                  name="research_depth"
+                  render={({ field }) => (
+                    <UiSelect
+                      ariaLabel="研究深度"
+                      value={String(field.value)}
+                      onChange={(value) => field.onChange(Number(value))}
+                      options={RESEARCH_DEPTH_OPTIONS}
+                    />
+                  )}
+                />
+              </div>
               <label className="switch-row"><input type="checkbox" {...form.register("checkpoint_enabled")} /><span className="switch" /><span><strong>启用 checkpoint</strong><small>中断后可从节点边界恢复</small></span></label>
             </div>
           </section>
@@ -169,9 +205,60 @@ export function NewRunPage() {
             <div className="section-number">03</div>
             <div className="section-copy"><h2>模型覆盖</h2><p>留空时读取全局设置；只对当前任务生效。</p></div>
             <div className="field-grid two-columns">
-              <label className="field-control field-span-two"><span>模型供应商</span><select {...form.register("llm_provider")}><option value="">使用全局设置</option>{providerField?.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label className="field-control"><span>快速模型</span><ModelInput models={modelQuery.data?.models} {...form.register("quick_model")} placeholder="使用全局设置或选择模型" /></label>
-              <label className="field-control"><span>深度模型</span><ModelInput models={modelQuery.data?.models} {...form.register("deep_model")} placeholder="使用全局设置或选择模型" /></label>
+              <div className="field-control field-span-two">
+                <span>模型供应商</span>
+                <Controller
+                  control={form.control}
+                  name="llm_provider"
+                  render={({ field }) => (
+                    <UiSelect
+                      ariaLabel="模型供应商"
+                      value={field.value}
+                      onChange={field.onChange}
+                      options={providerField?.options ?? []}
+                      placeholder="使用全局设置"
+                      searchable
+                      clearable
+                    />
+                  )}
+                />
+              </div>
+              <div className="field-control">
+                <span>快速模型</span>
+                <Controller
+                  control={form.control}
+                  name="quick_model"
+                  render={({ field }) => (
+                    <ModelCombobox
+                      ariaLabel="快速模型"
+                      value={field.value}
+                      onChange={field.onChange}
+                      models={modelQuery.data?.models}
+                      loading={modelQuery.isLoading}
+                      error={modelQuery.isError ? modelQuery.error.message : undefined}
+                      placeholder="使用全局设置或选择模型"
+                    />
+                  )}
+                />
+              </div>
+              <div className="field-control">
+                <span>深度模型</span>
+                <Controller
+                  control={form.control}
+                  name="deep_model"
+                  render={({ field }) => (
+                    <ModelCombobox
+                      ariaLabel="深度模型"
+                      value={field.value}
+                      onChange={field.onChange}
+                      models={modelQuery.data?.models}
+                      loading={modelQuery.isLoading}
+                      error={modelQuery.isError ? modelQuery.error.message : undefined}
+                      placeholder="使用全局设置或选择模型"
+                    />
+                  )}
+                />
+              </div>
             </div>
             {selectedProvider ? <div className={`model-discovery compact ${modelQuery.data?.warning ? "warning" : ""}`}><div><strong>{modelQuery.isLoading ? "正在读取模型…" : modelQuery.data?.source === "api" ? `${modelQuery.data.models.length} 个 API 可用模型` : "使用内置模型目录"}</strong><span>{modelQuery.data?.warning || "点击输入框即可选择，也支持手工输入。"}</span></div></div> : null}
           </section>
