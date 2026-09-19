@@ -21,3 +21,4 @@ def test_market_toolnode_can_execute_verified_snapshot():
     )
     # the other core market tools must remain too
     assert {"get_stock_data", "get_indicators"} <= market_tools
+    assert "get_crypto_market_report" in market_tools

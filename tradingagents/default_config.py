@@ -20,6 +20,12 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
     "TRADINGAGENTS_LLM_MAX_RETRIES":      "llm_max_retries",
     "TRADINGAGENTS_MAX_TOKENS":           "max_tokens",
+    "TRADINGAGENTS_CRYPTO_NEWS_LOOKBACK_DAYS": "crypto_news_lookback_days",
+    "TRADINGAGENTS_CRYPTO_NEWS_ARTICLE_LIMIT": "crypto_news_article_limit",
+    "TRADINGAGENTS_CRYPTO_NEWS_TIMEOUT":       "crypto_news_timeout",
+    "TRADINGAGENTS_CRYPTO_FUNDAMENTALS_TIMEOUT": "crypto_fundamentals_timeout",
+    "TRADINGAGENTS_CRYPTO_DEVELOPMENT_LOOKBACK_DAYS": "crypto_development_lookback_days",
+    "TRADINGAGENTS_ROOTDATA_FALLBACK_MODE":    "rootdata_fallback_mode",
     # Provider-specific reasoning/thinking knobs (None = each provider's own
     # default). Settable here for non-interactive runs; the CLI also offers an
     # interactive choice, which is skipped when the matching var is set.
@@ -122,6 +128,15 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "news_article_limit": 20,             # max articles per ticker (ticker-news)
     "global_news_article_limit": 10,      # max articles for global/macro news
     "global_news_lookback_days": 7,       # macro news lookback window
+    # 加密新闻统一快照的窗口、最终条目上限和单次请求超时。
+    "crypto_news_lookback_days": 7,
+    "crypto_news_article_limit": 50,
+    "crypto_news_timeout": 12.0,
+    # 加密基本面来源的请求超时，以及项目维护方发布记录的回看窗口。
+    "crypto_fundamentals_timeout": 12.0,
+    "crypto_development_lookback_days": 90,
+    # 未配置 RootData API 时，默认读取项目维护方公开的发布订阅并提供人工核对链接。
+    "rootdata_fallback_mode": "official_sources",
     # Search queries used by get_global_news for macro headlines. Extend or
     # replace to broaden geographic / sector coverage.
     "global_news_queries": [

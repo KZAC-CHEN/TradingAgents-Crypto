@@ -1,22 +1,80 @@
-"""Reusable report-tree writer shared by the CLI and the programmatic API.
-
-Writes a run's per-section markdown (analysts, research, trading, risk,
-portfolio) plus a consolidated ``complete_report.md`` under ``save_path``. The
-CLI and ``TradingAgentsGraph.save_reports`` both call this, so a headless / API
-run produces the same on-disk report tree a CLI run does.
-"""
+"""CLI 与程序接口共用的报告目录写入器。"""
 
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 
-def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
-    """Save a completed run's reports to ``save_path``; return the complete-report path."""
+def _build_decision_summary(
+    final_state: dict[str, Any],
+    ticker: str,
+    *,
+    signal: str | None,
+    evidence_health: dict[str, Any] | None,
+) -> str:
+    """把组合结论、执行计划和证据健康状态整理为报告首页摘要。"""
+    risk = final_state.get("risk_debate_state") or {}
+    decision = (
+        risk.get("judge_decision")
+        or final_state.get("final_trade_decision")
+        or final_state.get("trader_investment_plan")
+        or "组合经理没有生成最终结论。"
+    )
+    health = evidence_health or {}
+    health_state = str(health.get("state") or "unknown")
+    health_label = {
+        "ok": "完整",
+        "degraded": "降级",
+        "unknown": "未记录",
+    }.get(health_state, health_state)
+    failed_sections = [str(item) for item in health.get("failed_sections") or []]
+    provider_issues = [
+        str(item.get("provider") or "未知来源")
+        for item in health.get("provider_issues") or []
+        if isinstance(item, dict)
+    ]
+    lines = [
+        f"# {ticker} 最终投资建议",
+        "",
+        f"- **最终信号：{signal or '请查看组合经理结论'}**",
+        f"- **证据状态：{health_label}**",
+    ]
+    if failed_sections:
+        lines.append(f"- **失败分区：{'、'.join(failed_sections)}**")
+    if provider_issues:
+        lines.append(f"- **异常来源：{'、'.join(dict.fromkeys(provider_issues))}**")
+    lines.extend(
+        [
+            "",
+            "## 组合经理结论",
+            "",
+            str(decision),
+        ]
+    )
+    return "\n".join(lines).strip() + "\n"
+
+
+def write_report_tree(
+    final_state: dict[str, Any],
+    ticker: str,
+    save_path,
+    *,
+    signal: str | None = None,
+    evidence_health: dict[str, Any] | None = None,
+) -> Path:
+    """保存一次运行的分项报告，并返回完整报告路径。"""
     save_path = Path(save_path)
     save_path.mkdir(parents=True, exist_ok=True)
     sections = []
 
-    # 1. Analysts
+    decision_summary = _build_decision_summary(
+        final_state,
+        ticker,
+        signal=signal,
+        evidence_health=evidence_health,
+    )
+
+    # 1. 分析师报告
     analysts_dir = save_path / "1_analysts"
     analyst_parts = []
     if final_state.get("market_report"):
@@ -39,7 +97,7 @@ def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
         content = "\n\n".join(f"### {name}\n{text}" for name, text in analyst_parts)
         sections.append(f"## I. Analyst Team Reports\n\n{content}")
 
-    # 2. Research
+    # 2. 研究团队报告
     if final_state.get("investment_debate_state"):
         research_dir = save_path / "2_research"
         debate = final_state["investment_debate_state"]
@@ -60,17 +118,17 @@ def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
             content = "\n\n".join(f"### {name}\n{text}" for name, text in research_parts)
             sections.append(f"## II. Research Team Decision\n\n{content}")
 
-    # 3. Trading
+    # 3. 交易计划
     if final_state.get("trader_investment_plan"):
         trading_dir = save_path / "3_trading"
         trading_dir.mkdir(exist_ok=True)
         (trading_dir / "trader.md").write_text(final_state["trader_investment_plan"], encoding="utf-8")
         sections.append(f"## III. Trading Team Plan\n\n### Trader\n{final_state['trader_investment_plan']}")
 
-    # 4. Risk Management
-    if final_state.get("risk_debate_state"):
+    # 4. 风险管理报告
+    risk = final_state.get("risk_debate_state") or {}
+    if risk:
         risk_dir = save_path / "4_risk"
-        risk = final_state["risk_debate_state"]
         risk_parts = []
         if risk.get("aggressive_history"):
             risk_dir.mkdir(exist_ok=True)
@@ -88,14 +146,14 @@ def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
             content = "\n\n".join(f"### {name}\n{text}" for name, text in risk_parts)
             sections.append(f"## IV. Risk Management Team Decision\n\n{content}")
 
-        # 5. Portfolio Manager
-        if risk.get("judge_decision"):
-            portfolio_dir = save_path / "5_portfolio"
-            portfolio_dir.mkdir(exist_ok=True)
-            (portfolio_dir / "decision.md").write_text(risk["judge_decision"], encoding="utf-8")
-            sections.append(f"## V. Portfolio Manager Decision\n\n### Portfolio Manager\n{risk['judge_decision']}")
+    if risk.get("judge_decision") or final_state.get("final_trade_decision"):
+        portfolio_dir = save_path / "5_portfolio"
+        portfolio_dir.mkdir(exist_ok=True)
+        (portfolio_dir / "decision.md").write_text(decision_summary, encoding="utf-8")
 
-    # Write consolidated report
+    # 完整报告把可执行结论放在最前面，后面保留全部推理链条供审计。
     header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-    (save_path / "complete_report.md").write_text(header + "\n\n".join(sections), encoding="utf-8")
+    summary_body = decision_summary.partition("\n\n")[2] or decision_summary
+    complete = header + "## 执行摘要\n\n" + summary_body + "\n\n" + "\n\n".join(sections)
+    (save_path / "complete_report.md").write_text(complete, encoding="utf-8")
     return save_path / "complete_report.md"

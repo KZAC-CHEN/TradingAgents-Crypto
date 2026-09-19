@@ -16,6 +16,9 @@ from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_balance_sheet,
     get_cashflow,
+    get_crypto_fundamentals_report,
+    get_crypto_market_report,
+    get_crypto_news_report,
     get_fundamentals,
     get_global_news,
     get_income_statement,
@@ -30,6 +33,7 @@ from tradingagents.agents.utils.agent_utils import (
 )
 from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.dataflows.config import set_config
+from tradingagents.dataflows.crypto_evidence import prepare_crypto_evidence_bundle
 from tradingagents.dataflows.utils import get_current_date, safe_ticker_component
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.llm_clients import create_llm_client
@@ -111,6 +115,7 @@ class TradingAgentsGraph:
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
         self.callbacks = callbacks or []
+        self.crypto_evidence_manifest: dict[str, Any] | None = None
 
         # Update the interface's config
         set_config(self.config)
@@ -234,6 +239,8 @@ class TradingAgentsGraph:
                     # LLM and required by its prompt; must be executable here or
                     # the call fails and the model reports it "unavailable").
                     get_verified_market_snapshot,
+                    # 加密模式绑定的确定性币安市场报告工具。
+                    get_crypto_market_report,
                 ]
             ),
             "social": ToolNode(
@@ -250,6 +257,8 @@ class TradingAgentsGraph:
                     get_insider_transactions,
                     get_macro_indicators,
                     get_prediction_markets,
+                    # 加密模式使用的统一新闻、公告和社会信息报告。
+                    get_crypto_news_report,
                 ]
             ),
             "fundamentals": ToolNode(
@@ -259,6 +268,8 @@ class TradingAgentsGraph:
                     get_balance_sheet,
                     get_cashflow,
                     get_income_statement,
+                    # 加密模式使用的统一估值、供应量、TVL 和开发发布报告。
+                    get_crypto_fundamentals_report,
                 ]
             ),
         }
@@ -395,15 +406,13 @@ class TradingAgentsGraph:
 
     def resolve_instrument_context(self, ticker: str, asset_type: str = "stock",
                                    curr_date: str | None = None) -> str:
-        """Resolve ticker identity once and return the full instrument context.
+        """解析一次标的上下文，并让整条分析链路复用。
 
-        Deterministic yfinance lookup (cached, fail-open) injected into a
-        context string so every agent anchors to the real company instead of
-        hallucinating one from the price chart (#814). Both the propagate()
-        path and the CLI call this so the resolved identity reaches the whole
-        graph regardless of entry point.
+        股票使用带缓存且失败开放的 yfinance 身份查询，避免 Agent 根据图形误判
+        公司身份。加密资产只保留交易对上下文，不触发 Yahoo 请求。传播入口与
+        CLI 入口都会调用本方法。
         """
-        identity = resolve_instrument_identity(ticker)
+        identity = None if asset_type == "crypto" else resolve_instrument_identity(ticker)
         return build_instrument_context(ticker, asset_type, identity, curr_date)
 
     def _memory_as_of(self, trade_date) -> str | None:
@@ -424,14 +433,33 @@ class TradingAgentsGraph:
         selection, debate/risk depth, or asset mode starts fresh instead of
         silently continuing the previous graph (#1089).
         """
-        return "|".join([
+        parts = [
             "analysts=" + ",".join(self.selected_analysts),
             f"debate={self.config['max_debate_rounds']}",
             f"risk={self.config['max_risk_discuss_rounds']}",
             f"asset={asset_type}",
             # None, an empty book and a changed book are three different runs.
             f"portfolio={portfolio.fingerprint() if portfolio is not None else 'none'}",
-        ])
+        ]
+        if asset_type == "crypto":
+            parts.append("evidence=1")
+        return "|".join(parts)
+
+    def prepare_crypto_evidence(
+        self,
+        company_name: str,
+        trade_date: str,
+        *,
+        reuse_existing: bool,
+    ) -> dict[str, Any]:
+        """为本次加密分析准备证据包，恢复运行时只校验并复用。"""
+        return prepare_crypto_evidence_bundle(
+            company_name,
+            str(trade_date),
+            selected_analysts=self.selected_analysts,
+            results_dir=self.config["results_dir"],
+            reuse_existing=reuse_existing,
+        )
 
     def propagate(self, company_name, trade_date, asset_type: str = "stock", portfolio=None):
         """Run the trading agents graph for a company on a specific date.
@@ -453,10 +481,13 @@ class TradingAgentsGraph:
         self.ticker = company_name
 
         with self.checkpoint_scope(company_name, trade_date, asset_type, portfolio) as thread_id_value:
-            return self._run_graph(
-                company_name, trade_date, asset_type=asset_type,
-                checkpoint_thread_id=thread_id_value, portfolio=portfolio,
-            )
+            run_kwargs = {
+                "asset_type": asset_type,
+                "checkpoint_thread_id": thread_id_value,
+            }
+            if portfolio is not None:
+                run_kwargs["portfolio"] = portfolio
+            return self._run_graph(company_name, trade_date, **run_kwargs)
 
     def begin_checkpoint(self, company_name, trade_date, asset_type: str = "stock", portfolio=None) -> str | None:
         """Recompile the graph with a per-ticker checkpointer and return the
@@ -470,22 +501,38 @@ class TradingAgentsGraph:
         graph, making the flag a no-op.
         """
         self._resuming = False
-        if not self.config.get("checkpoint_enabled"):
-            return None
-        signature = self._run_signature(asset_type, portfolio)
-        self._checkpointer_ctx = get_checkpointer(self.config["data_cache_dir"], company_name)
-        saver = self._checkpointer_ctx.__enter__()
-        self.graph = self.workflow.compile(checkpointer=saver)
+        thread_id_value = None
+        if self.config.get("checkpoint_enabled"):
+            signature = self._run_signature(asset_type, portfolio)
+            self._checkpointer_ctx = get_checkpointer(
+                self.config["data_cache_dir"], company_name
+            )
+            saver = self._checkpointer_ctx.__enter__()
+            self.graph = self.workflow.compile(checkpointer=saver)
 
-        step = checkpoint_step(
-            self.config["data_cache_dir"], company_name, str(trade_date), signature
-        )
-        self._resuming = step is not None
-        if step is not None:
-            logger.info("Resuming from step %d for %s on %s", step, company_name, trade_date)
-        else:
-            logger.info("Starting fresh for %s on %s", company_name, trade_date)
-        return thread_id(company_name, str(trade_date), signature)
+            step = checkpoint_step(
+                self.config["data_cache_dir"], company_name, str(trade_date), signature
+            )
+            self._resuming = step is not None
+            if step is not None:
+                logger.info("Resuming from step %d for %s on %s", step, company_name, trade_date)
+            else:
+                logger.info("Starting fresh for %s on %s", company_name, trade_date)
+            thread_id_value = thread_id(company_name, str(trade_date), signature)
+
+        self.crypto_evidence_manifest = None
+        if asset_type == "crypto":
+            try:
+                self.crypto_evidence_manifest = self.prepare_crypto_evidence(
+                    company_name,
+                    str(trade_date),
+                    reuse_existing=self._resuming,
+                )
+            except Exception:
+                if self._checkpointer_ctx is not None:
+                    self.end_checkpoint()
+                raise
+        return thread_id_value
 
     def checkpoint_input(self, init_state):
         """The value to stream/invoke: ``None`` to resume an existing checkpoint,
@@ -544,14 +591,19 @@ class TradingAgentsGraph:
         resolved instrument identity for every agent (#814). An entry point that
         assembled the state itself would skip the decision log.
         """
-        self._resolve_pending_entries(company_name)
+        # 现有收益复盘依赖 Yahoo 行情；加密链路在实现原生复盘前不读写该日志。
+        if asset_type == "crypto":
+            past_context = ""
+        else:
+            self._resolve_pending_entries(company_name)
+            past_context = self.memory_log.get_past_context(
+                company_name, as_of=self._memory_as_of(trade_date)
+            )
         return self.propagator.create_initial_state(
             company_name,
             trade_date,
             asset_type=asset_type,
-            past_context=self.memory_log.get_past_context(
-                company_name, as_of=self._memory_as_of(trade_date)
-            ),
+            past_context=past_context,
             instrument_context=self.resolve_instrument_context(company_name, asset_type, trade_date),
             portfolio_context=portfolio.render(company_name) if portfolio is not None else "",
         )
@@ -617,7 +669,9 @@ class TradingAgentsGraph:
         # Log state to disk.
         self._log_state(trade_date, final_state)
 
-        self.record_decision(company_name, trade_date, final_state)
+        # 加密资产尚无币安原生收益复盘，因此只记录可由 Yahoo 校验的股票决策。
+        if asset_type != "crypto":
+            self.record_decision(company_name, trade_date, final_state)
 
         # Clear checkpoint on successful completion to avoid stale state.
         self.clear_checkpoint_on_success(company_name, trade_date, asset_type, portfolio)

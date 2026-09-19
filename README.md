@@ -176,7 +176,94 @@ For local models, configure Ollama with `llm_provider: "ollama"`. The default en
 
 For any other OpenAI-compatible server (vLLM, LM Studio, llama.cpp, or a custom relay), use `llm_provider: "openai_compatible"` and set the endpoint via `backend_url` (or `TRADINGAGENTS_LLM_BACKEND_URL`), e.g. `http://localhost:8000/v1` for vLLM or `http://localhost:1234/v1` for LM Studio. The model is whatever your server serves. No key is needed for local servers; set `OPENAI_COMPATIBLE_API_KEY` when the endpoint requires one.
 
-Alternatively, copy `.env.example` to `.env` and fill in your keys:
+The recommended setup is the local configuration page. It keeps news-source and
+LLM credentials in one place, writes them to the git-ignored project `.env`, and
+never sends a saved secret back to the browser:
+
+```bash
+tradingagents configure
+# Or, when running directly from the source tree:
+python -m cli.main configure
+```
+
+The service listens on `127.0.0.1` only. Use `--no-browser` if you want to open
+the displayed local URL yourself, or `--port 9000` to choose another local port.
+After saving, start a new analysis process so it reads the updated settings.
+
+### Web analysis center
+
+Start the complete local analysis center with one command:
+
+```bash
+tradingagents web
+# Keep the browser closed, or use a different local port:
+tradingagents web --no-browser --port 9000
+```
+
+Press `Ctrl+C` in the terminal that started the service to stop it. You can
+also control the managed service from another terminal:
+
+```bash
+# Stop the currently managed Web service and exit:
+tradingagents web --stop
+# Stop the old managed service, then start the current version:
+tradingagents web --restart
+```
+
+The stop command checks both the recorded process and its per-start health
+identifier before sending a termination signal, so it does not kill an
+unrelated program that happens to use the same port. A service started by a
+version that predates this process registry must be stopped once with
+`Ctrl+C`; later starts can use `--stop` and `--restart`.
+
+The service binds to `127.0.0.1` with one Uvicorn worker. Open the displayed
+URL to configure model and data-source credentials, create US-stock or crypto
+analysis tasks, follow Agent/LLM/tool progress, cancel at LangGraph node
+boundaries, resume interrupted checkpointed tasks, and browse reports,
+evidence JSON, SHA-256 metadata, and sanitized run logs.
+
+Web tasks execute one at a time because the existing data configuration is
+process-global. Additional tasks stay in a persistent FIFO queue. Task state is
+stored in `~/.tradingagents/web/runs.db`; each run gets a UUID directory under
+`~/.tradingagents/web/runs/` for reports, checkpoints, evidence, and logs. A
+service restart marks the active task as interrupted while preserving queued
+tasks and completed history. Resume is available only when the interrupted,
+failed, or cancelled task has a checkpoint.
+
+Saved API keys remain in `.env` or the process environment. Run creation APIs
+never accept keys, configuration snapshots and events are redacted, and
+artifact downloads resolve only database-registered IDs inside the generated
+run directory.
+
+The quick/deep model fields query the selected provider's model-list API with
+the credential already saved on the server. The browser receives model IDs but
+never the credential. Results are cached for five minutes and can be refreshed;
+when a provider cannot enumerate models or is temporarily unavailable, the UI
+shows the built-in catalog and still accepts a manually entered model ID.
+
+For frontend development, run the Python service and Vite separately:
+
+```bash
+tradingagents web --no-browser
+cd webui
+npm ci
+npm run dev
+```
+
+Vite listens on `127.0.0.1:5173` and proxies `/api` to the Python service on
+port `8765`. Use `npm run typecheck`, `npm test`, and `npm run build` before
+committing frontend changes. The production build is generated into
+`tradingagents/web_ui/dist`; edit files in `webui/src`, never the generated
+bundle directly.
+
+`ROOTDATA_API_KEY` remains optional. When it is absent, the default
+`official_sources` fallback reads registered project-maintainer release feeds
+and adds official website, documentation, governance, and RootData manual-check
+links to the report. It does not scrape RootData web pages. The configuration
+page also offers `manual_link` (links only) and `disabled` modes through
+`TRADINGAGENTS_ROOTDATA_FALLBACK_MODE`.
+
+You can also copy `.env.example` to `.env` and fill in your keys manually:
 ```bash
 cp .env.example .env
 ```
@@ -339,6 +426,11 @@ tradingagents backtest NVDA,AAPL --start 2026-06-01 --end 2026-08-01 --every 7
 ```
 
 Each cell is scored on realized alpha against the instrument's regional benchmark, grouped by rating. Your own decision log is never written to, and re-running the same grid with `run_id=result.run_id` skips the cells that already ran, so an interrupted sweep continues where it stopped.
+
+Web runs enable checkpointing from the new-analysis form. Each Web run uses an
+isolated cache and evidence directory. Choosing **Resume from checkpoint**
+reuses the original evidence package so market, news, and fundamentals inputs
+do not silently change between attempts.
 
 ## Reproducibility
 

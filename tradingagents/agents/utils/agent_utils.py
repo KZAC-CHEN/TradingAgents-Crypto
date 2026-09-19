@@ -8,6 +8,11 @@ from langchain_core.messages import HumanMessage, RemoveMessage
 
 # Import tools from separate utility files
 from tradingagents.agents.utils.core_stock_tools import get_stock_data
+from tradingagents.agents.utils.crypto_fundamentals_tools import (
+    get_crypto_fundamentals_report,
+)
+from tradingagents.agents.utils.crypto_market_tools import get_crypto_market_report
+from tradingagents.agents.utils.crypto_news_tools import get_crypto_news_report
 from tradingagents.agents.utils.fundamental_data_tools import (
     get_balance_sheet,
     get_cashflow,
@@ -28,6 +33,9 @@ from tradingagents.agents.utils.technical_indicators_tools import get_indicators
 # import them from one place, plus the instrument/language helpers defined below.
 __all__ = [
     "get_stock_data",
+    "get_crypto_fundamentals_report",
+    "get_crypto_market_report",
+    "get_crypto_news_report",
     "get_indicators",
     "get_fundamentals",
     "get_balance_sheet",
@@ -192,8 +200,9 @@ def build_instrument_context(
 
     if is_crypto:
         context += (
-            " Treat it as a crypto asset rather than a company, and do not "
-            "assume company fundamentals are available."
+            " Treat it as a crypto asset rather than a company. Use crypto-native "
+            "fundamentals when supplied, and do not invent company financial "
+            "statements, revenue, earnings, or cash flow."
         )
     return context
 

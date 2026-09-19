@@ -1,6 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.utils.agent_utils import (
+    get_crypto_market_report,
     get_indicators,
     get_instrument_context_from_state,
     get_language_instruction,
@@ -9,20 +10,33 @@ from tradingagents.agents.utils.agent_utils import (
 )
 
 
+def _select_market_tools(asset_type: str):
+    """根据资产类型选择互不混用的行情工具。"""
+    if asset_type == "crypto":
+        return [get_crypto_market_report]
+    return [get_stock_data, get_indicators, get_verified_market_snapshot]
+
+
 def create_market_analyst(llm):
 
     def market_analyst_node(state):
         current_date = state["trade_date"]
         instrument_context = get_instrument_context_from_state(state)
+        asset_type = state.get("asset_type", "stock")
+        tools = _select_market_tools(asset_type)
 
-        tools = [
-            get_stock_data,
-            get_indicators,
-            get_verified_market_snapshot,
-        ]
+        if asset_type == "crypto":
+            system_message = (
+                """You are a crypto market analyst. Call get_crypto_market_report exactly once using the requested symbol and current date before writing your report. Treat that deterministic Binance report as the only source of truth for exact prices, returns, technical indicators, futures basis, funding, open interest, and positioning data.
 
-        system_message = (
-            """You are a trading assistant tasked with analyzing financial markets. Your role is to select the **most relevant indicators** for a given market condition or trading strategy from the following list. The goal is to choose up to **8 indicators** that provide complementary insights without redundancy. Categories and each category's indicators are:
+Explain the alignment or conflict between the 4-hour and daily trends, momentum, volatility, volume, and derivatives positioning. Separate observations from interpretation. Preserve every quoted number and timestamp exactly as returned by the tool. Do not invent on-chain activity, fundamentals, historical tests, support/resistance reactions, or data from another market-data provider. If the tool reports missing futures data or warnings, state the limitation clearly.
+
+Write a detailed and nuanced report with actionable scenarios and risk conditions. Append a concise Markdown table that organizes the key evidence and implications."""
+                + get_language_instruction()
+            )
+        else:
+            system_message = (
+                """You are a trading assistant tasked with analyzing financial markets. Your role is to select the **most relevant indicators** for a given market condition or trading strategy from the following list. The goal is to choose up to **8 indicators** that provide complementary insights without redundancy. Categories and each category's indicators are:
 
 Moving Averages:
 - close_50_sma: 50 SMA: A medium-term trend indicator. Usage: Identify trend direction and serve as dynamic support/resistance. Tips: It lags price; combine with faster indicators for timely signals.
@@ -51,9 +65,9 @@ Volume-Based Indicators:
 Before writing the final report, call get_verified_market_snapshot for this ticker and the current date, and treat it as the source of truth for any exact OHLCV, price-level, or indicator-value claim. If another tool's output conflicts with the verified snapshot, flag the discrepancy rather than inventing a reconciled number. Do not claim historical validation, support/resistance bounces, or exact percentage moves unless they are directly supported by tool output with concrete dates and prices.
 
 Write a very detailed and nuanced report of the trends you observe. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."""
-            + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
-            + get_language_instruction()
-        )
+                + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
+                + get_language_instruction()
+            )
 
         prompt = ChatPromptTemplate.from_messages(
             [
