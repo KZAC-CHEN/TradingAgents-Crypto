@@ -89,6 +89,8 @@ const completedRun: AnalysisRun = {
   artifact_root: "local",
   attempt: 1,
   checkpoint_available: false,
+  signal: null,
+  evidence_health: { state: "ok", sections: {}, failed_sections: [], provider_issues: [], warnings: [] },
   queue_position: 1,
   error: null,
   created_at: "2026-09-19T00:00:00Z",

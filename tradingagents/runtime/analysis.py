@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from tradingagents.dataflows.crypto_evidence import summarize_crypto_evidence
 from tradingagents.graph.analyst_execution import ANALYST_NODE_SPECS
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.reporting import write_report_tree
@@ -108,6 +109,7 @@ class AnalysisResult:
     report_path: Path
     artifact_root: Path
     stats: dict[str, Any]
+    evidence_health: dict[str, Any] = field(default_factory=dict)
 
 
 class AnalysisRunner:
@@ -201,7 +203,13 @@ class AnalysisRunner:
                 args.setdefault("config", {}).setdefault("configurable", {})[
                     "thread_id"
                 ] = checkpoint_id
-            emit("evidence.completed", {"asset_type": asset_type})
+            evidence_health = summarize_crypto_evidence(
+                getattr(graph, "crypto_evidence_manifest", None)
+            )
+            emit(
+                "evidence.completed",
+                {"asset_type": asset_type, "health": evidence_health},
+            )
             self._check_cancel(should_cancel)
             emit("run.started", progress.payload())
             for chunk in graph.graph.stream(graph.checkpoint_input(initial_state), **args):
@@ -241,6 +249,7 @@ class AnalysisRunner:
                 "signal": signal,
                 "report_path": str(report_path),
                 "stats": stats.get_stats(),
+                "evidence_health": evidence_health,
             },
         )
         return AnalysisResult(
@@ -250,6 +259,7 @@ class AnalysisRunner:
             report_path=report_path,
             artifact_root=root,
             stats=stats.get_stats(),
+            evidence_health=evidence_health,
         )
 
     @staticmethod

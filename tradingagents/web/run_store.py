@@ -42,6 +42,8 @@ class RunStore:
                     artifact_root TEXT NOT NULL,
                     attempt INTEGER NOT NULL DEFAULT 1,
                     checkpoint_available INTEGER NOT NULL DEFAULT 0,
+                    signal TEXT,
+                    evidence_health_json TEXT NOT NULL DEFAULT '{}',
                     error TEXT,
                     created_at TEXT NOT NULL,
                     started_at TEXT,
@@ -83,11 +85,20 @@ class RunStore:
                     ON artifacts(run_id, kind, label);
                 """
             )
-            columns = {
+            run_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(runs)").fetchall()
+            }
+            if "signal" not in run_columns:
+                connection.execute("ALTER TABLE runs ADD COLUMN signal TEXT")
+            if "evidence_health_json" not in run_columns:
+                connection.execute(
+                    "ALTER TABLE runs ADD COLUMN evidence_health_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            artifact_columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(artifacts)").fetchall()
             }
-            if "sha256" not in columns:
+            if "sha256" not in artifact_columns:
                 connection.execute(
                     "ALTER TABLE artifacts ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''"
                 )
@@ -153,6 +164,8 @@ class RunStore:
             "stage",
             "attempt",
             "checkpoint_available",
+            "signal",
+            "evidence_health",
             "error",
             "started_at",
             "finished_at",
@@ -165,6 +178,12 @@ class RunStore:
         normalized = dict(changes)
         if "checkpoint_available" in normalized:
             normalized["checkpoint_available"] = int(bool(normalized["checkpoint_available"]))
+        if "evidence_health" in normalized:
+            normalized["evidence_health_json"] = json.dumps(
+                normalized.pop("evidence_health"),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
         normalized["updated_at"] = _utc_now()
         assignments = ", ".join(f"{name} = ?" for name in normalized)
         values = [normalized[name] for name in normalized]
@@ -255,6 +274,7 @@ class RunStore:
                 """
                 UPDATE runs
                 SET status = 'queued', stage = 'queued', attempt = ?, error = NULL,
+                    signal = NULL, evidence_health_json = '{}',
                     started_at = NULL, finished_at = NULL, updated_at = ?
                 WHERE run_id = ?
                 """,
@@ -443,5 +463,6 @@ class RunStore:
         result = dict(row)
         result["request"] = json.loads(result.pop("request_json"))
         result["config"] = json.loads(result.pop("config_json"))
+        result["evidence_health"] = json.loads(result.pop("evidence_health_json") or "{}")
         result["checkpoint_available"] = bool(result["checkpoint_available"])
         return result

@@ -140,6 +140,7 @@ button { color: inherit; }
 .status-running, .status-evidence, .status-preflight { color: var(--accent); background: var(--accent-soft); }
 .status-queued { color: var(--warning); background: color-mix(in srgb, var(--warning) 11%, transparent); }
 .status-succeeded { color: var(--success); background: color-mix(in srgb, var(--success) 11%, transparent); }
+.status-degraded { color: var(--warning); background: color-mix(in srgb, var(--warning) 13%, transparent); }
 .status-failed, .status-interrupted { color: var(--danger); background: color-mix(in srgb, var(--danger) 11%, transparent); }
 .status-cancelled, .status-cancel_requested { color: var(--muted); }
 .loading-block, .empty-state { padding: 55px 24px; color: var(--muted); text-align: center; }
@@ -286,14 +287,16 @@ button { color: inherit; }
 .run-actions { display: flex; align-items: center; gap: 8px; }
 .button-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 25%, var(--border)); background: color-mix(in srgb, var(--danger) 7%, var(--surface)); }
 .action-error { max-width: 260px; color: var(--danger); font-size: 9px; }
-.queue-banner, .failure-banner { display: flex; align-items: flex-start; gap: 12px; padding: 14px 18px; border-radius: 11px; }
+.queue-banner, .failure-banner, .degraded-banner { display: flex; align-items: flex-start; gap: 12px; padding: 14px 18px; border-radius: 11px; }
 .queue-banner { color: var(--warning); border: 1px solid color-mix(in srgb, var(--warning) 20%, var(--border)); background: color-mix(in srgb, var(--warning) 7%, var(--surface)); }
 .queue-banner.neutral { color: var(--muted); border-color: var(--border); background: var(--surface); }
-.queue-banner > div, .failure-banner > div { display: flex; flex-direction: column; }
-.queue-banner strong, .failure-banner strong { color: var(--text); font-size: 11px; }
-.queue-banner span, .failure-banner span { margin-top: 3px; font-size: 9px; }
+.queue-banner > div, .failure-banner > div, .degraded-banner > div { display: flex; flex-direction: column; }
+.queue-banner strong, .failure-banner strong, .degraded-banner strong { color: var(--text); font-size: 11px; }
+.queue-banner span, .failure-banner span, .degraded-banner span { margin-top: 3px; font-size: 9px; }
 .failure-banner { color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 22%, var(--border)); background: color-mix(in srgb, var(--danger) 7%, var(--surface)); }
 .failure-banner p { margin: 5px 0; color: var(--text); font-size: 11px; line-height: 1.6; }
+.degraded-banner { color: var(--warning); border: 1px solid color-mix(in srgb, var(--warning) 24%, var(--border)); background: color-mix(in srgb, var(--warning) 8%, var(--surface)); }
+.degraded-banner p { margin: 5px 0; color: var(--text); font-size: 11px; line-height: 1.6; }
 .run-overview-grid { display: grid; grid-template-columns: minmax(290px, 2fr) repeat(4, minmax(105px, 1fr)); gap: 11px; }
 .progress-card { padding: 18px 19px; }
 .progress-card-head { display: flex; justify-content: space-between; align-items: flex-start; }

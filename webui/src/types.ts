@@ -7,7 +7,23 @@ export type RunStatus =
   | "cancelled"
   | "failed"
   | "interrupted"
+  | "degraded"
   | "succeeded";
+
+export interface EvidenceProviderIssue {
+  section: string;
+  provider: string;
+  state: string;
+  detail: string;
+}
+
+export interface EvidenceHealth {
+  state: "ok" | "degraded";
+  sections: Record<string, string>;
+  failed_sections: string[];
+  provider_issues: EvidenceProviderIssue[];
+  warnings: string[];
+}
 
 export interface ConfigOption {
   value: string;
@@ -82,6 +98,8 @@ export interface AnalysisRun {
   artifact_root: string;
   attempt: number;
   checkpoint_available: boolean;
+  signal: string | null;
+  evidence_health: EvidenceHealth;
   queue_position: number | null;
   error: string | null;
   created_at: string;

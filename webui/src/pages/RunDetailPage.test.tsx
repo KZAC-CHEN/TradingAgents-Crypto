@@ -32,6 +32,8 @@ function run(status: RunStatus, overrides: Partial<AnalysisRun> = {}): AnalysisR
     artifact_root: "local",
     attempt: 1,
     checkpoint_available: false,
+    signal: null,
+    evidence_health: { state: "ok", sections: {}, failed_sections: [], provider_issues: [], warnings: [] },
     queue_position: null,
     error: null,
     created_at: "2026-09-19T00:00:00Z",
@@ -82,5 +84,21 @@ describe("任务详情状态", () => {
     renderRun(run("succeeded", { started_at: "2026-09-19T00:00:00Z", finished_at: "2026-09-19T00:01:00Z" }));
     expect(await screen.findByText("100%")).toBeInTheDocument();
     expect(screen.getAllByText("已完成").length).toBeGreaterThan(1);
+  });
+
+  it("降级完成时显示最终建议和证据告警", async () => {
+    renderRun(run("degraded", {
+      signal: "HOLD",
+      evidence_health: {
+        state: "degraded",
+        sections: { market: "error", news: "ok" },
+        failed_sections: ["market"],
+        provider_issues: [],
+        warnings: ["市场快照不可用"],
+      },
+    }));
+    expect(await screen.findByText(/最终建议 HOLD/)).toBeInTheDocument();
+    expect(screen.getByText("失败分区：market")).toBeInTheDocument();
+    expect(screen.getAllByText("降级完成").length).toBeGreaterThan(1);
   });
 });

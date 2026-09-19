@@ -101,6 +101,7 @@ class TradingAgentsGraph:
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
         self.callbacks = callbacks or []
+        self.crypto_evidence_manifest: dict[str, Any] | None = None
 
         # Update the interface's config
         set_config(self.config)
@@ -487,9 +488,10 @@ class TradingAgentsGraph:
                 logger.info("Starting fresh for %s on %s", company_name, trade_date)
             thread_id_value = thread_id(company_name, str(trade_date), signature)
 
+        self.crypto_evidence_manifest = None
         if asset_type == "crypto":
             try:
-                self.prepare_crypto_evidence(
+                self.crypto_evidence_manifest = self.prepare_crypto_evidence(
                     company_name,
                     str(trade_date),
                     reuse_existing=self._resuming,

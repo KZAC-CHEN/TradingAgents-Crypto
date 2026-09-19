@@ -28,7 +28,7 @@ import { useRunEvents } from "../hooks/useRunEvents";
 import { formatDateTime, formatDuration, STATUS_LABELS } from "../lib/format";
 import type { AnalysisRun, RunEvent } from "../types";
 
-const TERMINAL = new Set(["succeeded", "cancelled", "failed", "interrupted"]);
+const TERMINAL = new Set(["succeeded", "degraded", "cancelled", "failed", "interrupted"]);
 const ACTIVE = new Set(["queued", "preflight", "evidence", "running", "cancel_requested"]);
 
 const AGENT_GROUPS = [
@@ -84,6 +84,7 @@ function eventDescription(event: RunEvent): string {
     "run.interrupted": "任务因服务停止而中断",
     "run.resumed": "任务已重新进入队列",
     "run.failed": "任务执行失败",
+    "run.degraded": "分析已完成，但部分证据不可用",
     "run.succeeded": "分析与报告已完成",
   };
   if (event.event_type === "message.created") {
@@ -157,7 +158,8 @@ export function RunDetailPage() {
   if (query.isLoading) return <div className="loading-block">正在读取任务…</div>;
   if (query.isError || !query.data) return <div className="error-banner">无法读取任务：{query.error?.message}</div>;
   const run = query.data;
-  const percentage = runtime.totalAgents ? Math.round((runtime.completedAgents / runtime.totalAgents) * 100) : run.status === "succeeded" ? 100 : 0;
+  const completed = ["succeeded", "degraded"].includes(run.status);
+  const percentage = runtime.totalAgents ? Math.round((runtime.completedAgents / runtime.totalAgents) * 100) : completed ? 100 : 0;
   const elapsed = formatDuration(run.started_at, run.finished_at);
 
   return (
@@ -178,6 +180,7 @@ export function RunDetailPage() {
 
       {run.status === "queued" ? <section className="queue-banner"><Clock3 size={18} /><div><strong>任务正在排队</strong><span>{run.queue_position ? `前面还有 ${Math.max(0, run.queue_position - 1)} 个任务` : "等待工作线程领取"}</span></div></section> : null}
       {run.status === "cancel_requested" ? <section className="queue-banner neutral"><Ban size={18} /><div><strong>取消请求已发送</strong><span>任务将在当前 LangGraph 节点结束后安全停止。</span></div></section> : null}
+      {run.status === "degraded" ? <section className="degraded-banner"><AlertTriangle size={21} /><div><strong>分析已降级完成 · 最终建议 {run.signal || "REVIEW"}</strong><p>部分关键证据或数据来源不可用，请先查看证据覆盖和告警，再采用报告结论。</p>{run.evidence_health.failed_sections.length ? <span>失败分区：{run.evidence_health.failed_sections.join("、")}</span> : null}</div></section> : null}
       {run.error ? <section className="failure-banner"><AlertTriangle size={21} /><div><strong>{run.status === "interrupted" ? "任务被中断" : "任务执行失败"}</strong><p>{run.error}</p>{run.checkpoint_available ? <span>已检测到 checkpoint，可以手动恢复。</span> : null}</div></section> : null}
 
       <section className="run-overview-grid">
@@ -200,7 +203,7 @@ export function RunDetailPage() {
               <div className="agent-group" key={group.title}>
                 <h3>{group.title}</h3>
                 {group.names.map((name) => {
-                  const status = runtime.agents[name] || (run.status === "succeeded" ? "completed" : "pending");
+                  const status = runtime.agents[name] || (completed ? "completed" : "pending");
                   return <div className={`agent-row agent-${status}`} key={name}><div className="agent-state">{agentIcon(status)}</div><div><strong>{AGENT_LABELS[name] || name}</strong><span>{status === "completed" ? "已完成" : status === "in_progress" ? "正在处理" : "等待中"}</span></div><time>{formatSeconds(runtime.agentDurations[name])}</time></div>;
                 })}
               </div>

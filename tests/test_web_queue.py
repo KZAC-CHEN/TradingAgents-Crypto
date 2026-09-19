@@ -140,6 +140,50 @@ class _ResumeFactory:
         return Runner()
 
 
+class _DegradedFactory:
+    def __call__(self, config):
+        class Runner:
+            def run(self, request, *, artifact_root, run_id, event_sink, cancel_check):
+                root = Path(artifact_root)
+                root.mkdir(parents=True, exist_ok=True)
+                report = root / "report.md"
+                report.write_text("degraded", encoding="utf-8")
+                return SimpleNamespace(
+                    signal="HOLD",
+                    report_path=report,
+                    evidence_health={
+                        "state": "degraded",
+                        "sections": {"market": "error", "news": "ok"},
+                        "failed_sections": ["market"],
+                        "provider_issues": [],
+                        "warnings": ["市场快照不可用"],
+                    },
+                )
+
+        return Runner()
+
+
+def test_evidence_failure_marks_completed_run_degraded(tmp_path):
+    store = RunStore(tmp_path / "runs.db")
+    _create_run(store, tmp_path, "run-1")
+    manager = RunManager(
+        store,
+        ConfigStore(tmp_path / ".env"),
+        runner_factory=_DegradedFactory(),
+        poll_interval=0.01,
+    )
+
+    manager.start()
+    try:
+        completed = _wait_for(store, "run-1", {"degraded"})
+    finally:
+        manager.stop()
+
+    assert completed["signal"] == "HOLD"
+    assert completed["evidence_health"]["failed_sections"] == ["market"]
+    assert store.list_events("run-1")[-1]["event_type"] == "run.degraded"
+
+
 def test_failed_run_can_resume_with_checkpoint(tmp_path):
     store = RunStore(tmp_path / "runs.db")
     _create_run(store, tmp_path, "run-1")

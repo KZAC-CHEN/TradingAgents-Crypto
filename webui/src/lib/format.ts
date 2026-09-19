@@ -62,6 +62,7 @@ export const STATUS_LABELS: Record<RunStatus, string> = {
   cancelled: "已取消",
   failed: "失败",
   interrupted: "已中断",
+  degraded: "降级完成",
   succeeded: "已完成",
 };
 

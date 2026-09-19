@@ -15,7 +15,7 @@ export function DashboardPage() {
   const active = runs.filter((run) => ["preflight", "evidence", "running", "cancel_requested"].includes(run.status));
   const queued = runs.filter((run) => run.status === "queued");
   const succeeded = runs.filter((run) => run.status === "succeeded");
-  const attention = runs.filter((run) => ["failed", "interrupted"].includes(run.status));
+  const attention = runs.filter((run) => ["degraded", "failed", "interrupted"].includes(run.status));
 
   return (
     <div className="page-stack">
@@ -39,8 +39,8 @@ export function DashboardPage() {
       <section className="metric-grid" aria-label="任务概览">
         <article className="metric-card"><Activity /><span>正在运行</span><strong>{active.length}</strong><small>单任务队列</small></article>
         <article className="metric-card"><Clock3 /><span>等待队列</span><strong>{queued.length}</strong><small>按创建时间执行</small></article>
-        <article className="metric-card"><CheckCircle2 /><span>已完成</span><strong>{succeeded.length}</strong><small>报告可随时浏览</small></article>
-        <article className="metric-card"><TriangleAlert /><span>需要处理</span><strong>{attention.length}</strong><small>失败或中断</small></article>
+        <article className="metric-card"><CheckCircle2 /><span>完整完成</span><strong>{succeeded.length}</strong><small>证据覆盖正常</small></article>
+        <article className="metric-card"><TriangleAlert /><span>需要关注</span><strong>{attention.length}</strong><small>降级、失败或中断</small></article>
       </section>
 
       <section className="panel">

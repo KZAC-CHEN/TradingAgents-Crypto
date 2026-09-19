@@ -27,7 +27,7 @@ from .run_store import RunStore
 
 logger = logging.getLogger(__name__)
 
-TERMINAL_STATUSES = {"succeeded", "cancelled", "failed", "interrupted"}
+TERMINAL_STATUSES = {"succeeded", "degraded", "cancelled", "failed", "interrupted"}
 RunnerFactory = Callable[[dict[str, Any]], AnalysisRunner]
 
 
@@ -208,18 +208,32 @@ class RunManager:
             self._append_event(run_id, "run.failed", {"error": message}, secrets)
             self._index_artifacts(run_id)
         else:
+            evidence_health = getattr(result, "evidence_health", None) or {
+                "state": "ok",
+                "sections": {},
+                "failed_sections": [],
+                "provider_issues": [],
+                "warnings": [],
+            }
+            status = "degraded" if evidence_health.get("state") == "degraded" else "succeeded"
             self.store.update_run(
                 run_id,
-                status="succeeded",
-                stage="succeeded",
+                status=status,
+                stage=status,
                 checkpoint_available=False,
+                signal=result.signal,
+                evidence_health=evidence_health,
                 error=None,
                 finished_at=_utc_now(),
             )
             self._append_event(
                 run_id,
-                "run.succeeded",
-                {"signal": result.signal, "report_path": str(result.report_path)},
+                f"run.{status}",
+                {
+                    "signal": result.signal,
+                    "report_path": str(result.report_path),
+                    "evidence_health": evidence_health,
+                },
                 secrets,
             )
             self._index_artifacts(run_id)

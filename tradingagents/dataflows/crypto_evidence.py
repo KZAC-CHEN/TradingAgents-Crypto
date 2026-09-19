@@ -87,6 +87,48 @@ def sections_for_analysts(selected_analysts: Iterable[str]) -> tuple[str, ...]:
     return tuple(section for section in _SECTION_ORDER if section in requested)
 
 
+def summarize_crypto_evidence(manifest: dict[str, Any] | None) -> dict[str, Any]:
+    """把证据清单压缩为适合运行状态和界面展示的健康摘要。"""
+    if not manifest:
+        return {
+            "state": "ok",
+            "sections": {},
+            "failed_sections": [],
+            "provider_issues": [],
+            "warnings": [],
+        }
+    raw_sections = manifest.get("sections") or {}
+    sections = {
+        str(name): str(entry.get("state") or "error")
+        for name, entry in raw_sections.items()
+        if isinstance(entry, dict)
+    }
+    failed_sections = [name for name, state in sections.items() if state != "ok"]
+    provider_issues = []
+    for provider in manifest.get("providers") or []:
+        if not isinstance(provider, dict):
+            continue
+        state = str(provider.get("state") or "unknown")
+        if state not in {"error", "degraded"}:
+            continue
+        provider_issues.append(
+            {
+                "section": str(provider.get("section") or ""),
+                "provider": str(provider.get("provider") or "未知来源"),
+                "state": state,
+                "detail": str(provider.get("detail") or ""),
+            }
+        )
+    warnings = list(dict.fromkeys(str(item) for item in manifest.get("warnings") or []))
+    return {
+        "state": "degraded" if failed_sections or provider_issues else "ok",
+        "sections": sections,
+        "failed_sections": failed_sections,
+        "provider_issues": provider_issues,
+        "warnings": warnings,
+    }
+
+
 def crypto_evidence_directory(
     symbol: str,
     analysis_date: str,

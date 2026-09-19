@@ -124,6 +124,7 @@ export const RUN_EVENT_TYPES = [
   "run.interrupted",
   "run.failed",
   "run.resumed",
+  "run.degraded",
   "run.succeeded",
 ] as const;
 

@@ -290,6 +290,25 @@ def test_cutoff_comparison_uses_utc_millisecond_precision():
 
 
 @pytest.mark.unit
+def test_evidence_health_marks_failed_sections_and_provider_errors_degraded():
+    summary = evidence.summarize_crypto_evidence(
+        {
+            "sections": {"market": {"state": "error"}, "news": {"state": "ok"}},
+            "providers": [
+                {"section": "market", "provider": "Binance", "state": "error", "detail": "451"},
+                {"section": "news", "provider": "X API", "state": "disabled", "detail": "未配置"},
+            ],
+            "warnings": ["市场不可用", "市场不可用"],
+        }
+    )
+
+    assert summary["state"] == "degraded"
+    assert summary["failed_sections"] == ["market"]
+    assert summary["provider_issues"][0]["provider"] == "Binance"
+    assert summary["warnings"] == ["市场不可用"]
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("module_name", "entrypoint", "collector_name", "section"),
     [
