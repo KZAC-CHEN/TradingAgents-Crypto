@@ -1221,18 +1221,44 @@ def web(
         "--env-file",
         help="Optional .env path; defaults to the project .env file.",
     ),
+    stop: bool = typer.Option(
+        False,
+        "--stop",
+        help="Stop the managed TradingAgents Web service and exit.",
+    ),
+    restart: bool = typer.Option(
+        False,
+        "--restart",
+        help="Stop the managed Web service before starting a new one.",
+    ),
 ):
     """启动仅限本机访问的 TradingAgents Web 分析中心。"""
-    from tradingagents.web import run_web_server
+    from tradingagents.web import (
+        WebServerControlError,
+        run_web_server,
+        stop_web_server,
+    )
+
+    if stop and restart:
+        raise typer.BadParameter("--stop 与 --restart 不能同时使用。")
 
     try:
+        if stop:
+            result = stop_web_server()
+            color = "green" if result.stopped else "yellow"
+            console.print(f"[{color}]{result.message}[/{color}]")
+            return
+        if restart:
+            result = stop_web_server()
+            color = "green" if result.stopped else "yellow"
+            console.print(f"[{color}]{result.message}[/{color}]")
         run_web_server(
             port=port,
             env_path=env_file,
             open_browser=not no_browser,
         )
-    except OSError as exc:
-        console.print(f"[red]无法启动 Web 分析中心：{exc}[/red]")
+    except (OSError, WebServerControlError) as exc:
+        console.print(f"[red]无法管理 Web 分析中心：{exc}[/red]")
         raise typer.Exit(code=1) from exc
 
 

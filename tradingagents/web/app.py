@@ -33,6 +33,7 @@ from .run_manager import (
     preflight_analysis,
 )
 from .run_store import RunStore
+from .server_control import registered_web_server
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 _MAX_REQUEST_BYTES = 64 * 1024
@@ -142,6 +143,7 @@ def create_web_app(
     runner_factory: Any = AnalysisRunner,
     start_run_manager: bool = True,
     crypto_catalog: CryptoAssetCatalog | None = None,
+    server_instance_id: str | None = None,
 ) -> FastAPI:
     """创建只为本机单用户设计的 Web 应用。"""
     allowed = set(allowed_hosts or _LOOPBACK_HOSTS)
@@ -193,6 +195,7 @@ def create_web_app(
         crypto_catalog=app.state.crypto_catalog,
     )
     app.state.start_run_manager = start_run_manager
+    app.state.server_instance_id = server_instance_id or str(uuid4())
 
     @app.middleware("http")
     async def protect_local_service(request: Request, call_next):
@@ -217,7 +220,11 @@ def create_web_app(
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:
-        return {"status": "ok"}
+        return {
+            "status": "ok",
+            "service": "tradingagents-web",
+            "instanceId": app.state.server_instance_id,
+        }
 
     @app.get("/api/config")
     async def get_config(request: Request) -> dict[str, Any]:
@@ -467,22 +474,33 @@ def run_web_server(
     database_path: str | Path | None = None,
     open_browser: bool = True,
     initial_path: str = "/",
+    state_path: str | Path | None = None,
 ) -> None:
     """运行单 worker 本地服务，直到用户终止进程。"""
     if not 1 <= port <= 65535:
         raise ValueError("端口必须在 1 到 65535 之间。")
-    app = create_web_app(env_path=env_path, database_path=database_path)
-    url = f"http://127.0.0.1:{port}{initial_path}"
-    print(f"TradingAgents Web 已启动：{url}")
-    print(f"配置将写入：{app.state.config_store.env_path}")
-    print("按 Ctrl+C 停止服务。")
-    if open_browser:
-        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
-    uvicorn.run(
-        app,
-        host="127.0.0.1",
+    instance_id = str(uuid4())
+    with registered_web_server(
         port=port,
-        workers=1,
-        log_level="info",
-        timeout_graceful_shutdown=5,
-    )
+        instance_id=instance_id,
+        state_path=state_path,
+    ):
+        app = create_web_app(
+            env_path=env_path,
+            database_path=database_path,
+            server_instance_id=instance_id,
+        )
+        url = f"http://127.0.0.1:{port}{initial_path}"
+        print(f"TradingAgents Web 已启动：{url}")
+        print(f"配置将写入：{app.state.config_store.env_path}")
+        print("按 Ctrl+C 停止服务，或在另一终端运行 tradingagents web --stop。")
+        if open_browser:
+            threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+        uvicorn.run(
+            app,
+            host="127.0.0.1",
+            port=port,
+            workers=1,
+            log_level="info",
+            timeout_graceful_shutdown=5,
+        )

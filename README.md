@@ -180,6 +180,22 @@ tradingagents web
 tradingagents web --no-browser --port 9000
 ```
 
+Press `Ctrl+C` in the terminal that started the service to stop it. You can
+also control the managed service from another terminal:
+
+```bash
+# Stop the currently managed Web service and exit:
+tradingagents web --stop
+# Stop the old managed service, then start the current version:
+tradingagents web --restart
+```
+
+The stop command checks both the recorded process and its per-start health
+identifier before sending a termination signal, so it does not kill an
+unrelated program that happens to use the same port. A service started by a
+version that predates this process registry must be stopped once with
+`Ctrl+C`; later starts can use `--stop` and `--restart`.
+
 The service binds to `127.0.0.1` with one Uvicorn worker. Open the displayed
 URL to configure model and data-source credentials, create US-stock or crypto
 analysis tasks, follow Agent/LLM/tool progress, cancel at LangGraph node

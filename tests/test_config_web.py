@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 
 import cli.main as cli_main
 from tradingagents.web.app import create_web_app
+from tradingagents.web.server_control import StopWebServerResult
 
 
 def _client(tmp_path, monkeypatch) -> TestClient:
@@ -41,6 +42,24 @@ def test_get_config_hides_secret_and_serves_spa_routes(tmp_path, monkeypatch):
     assert page.status_code == 200
     assert "TradingAgents 分析中心" in page.text
     assert "default-src 'self'" in page.headers["Content-Security-Policy"]
+
+
+def test_health_identifies_managed_web_instance(tmp_path, monkeypatch):
+    app = create_web_app(
+        env_path=tmp_path / ".env",
+        database_path=tmp_path / "runs.db",
+        allowed_hosts={"testserver"},
+        server_instance_id="instance-test",
+    )
+    with TestClient(app, base_url="http://testserver") as client:
+        response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "service": "tradingagents-web",
+        "instanceId": "instance-test",
+    }
 
 
 def test_put_requires_csrf_token(tmp_path, monkeypatch):
@@ -146,3 +165,56 @@ def test_web_command_forwards_server_options(tmp_path, monkeypatch):
         "env_path": str(env_path),
         "open_browser": False,
     }
+
+
+def test_web_stop_only_stops_managed_service(monkeypatch):
+    calls = []
+
+    def fake_stop_web_server():
+        calls.append("stop")
+        return StopWebServerResult(stopped=True, message="已停止测试服务。")
+
+    def fake_run_web_server(**_kwargs):
+        calls.append("run")
+
+    monkeypatch.setattr("tradingagents.web.stop_web_server", fake_stop_web_server)
+    monkeypatch.setattr("tradingagents.web.run_web_server", fake_run_web_server)
+    result = CliRunner().invoke(cli_main.app, ["web", "--stop"])
+
+    assert result.exit_code == 0
+    assert calls == ["stop"]
+    assert "已停止测试服务" in result.output
+
+
+def test_web_restart_stops_before_starting(monkeypatch):
+    calls = []
+
+    def fake_stop_web_server():
+        calls.append("stop")
+        return StopWebServerResult(stopped=False, message="没有旧服务。")
+
+    def fake_run_web_server(**kwargs):
+        calls.append(("run", kwargs))
+
+    monkeypatch.setattr("tradingagents.web.stop_web_server", fake_stop_web_server)
+    monkeypatch.setattr("tradingagents.web.run_web_server", fake_run_web_server)
+    result = CliRunner().invoke(
+        cli_main.app,
+        ["web", "--restart", "--port", "9014", "--no-browser"],
+    )
+
+    assert result.exit_code == 0
+    assert calls == [
+        "stop",
+        (
+            "run",
+            {"port": 9014, "env_path": None, "open_browser": False},
+        ),
+    ]
+
+
+def test_web_rejects_stop_and_restart_together():
+    result = CliRunner().invoke(cli_main.app, ["web", "--stop", "--restart"])
+
+    assert result.exit_code == 2
+    assert "不能同时使用" in result.output
